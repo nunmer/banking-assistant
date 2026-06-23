@@ -1,0 +1,61 @@
+services:
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    env_file: .env
+    depends_on: [orchestrator, speech-api]
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [postgres, redis, mock-mib]
+    restart: unless-stopped
+
+  speech-api:
+    build:
+      context: .
+      dockerfile: speech-api/Dockerfile
+    ports: ["8002:8002"]
+    env_file: .env
+    # host.docker.internal lets the speechkit provider reach a speech-service
+    # running on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  mock-mib:
+    build:
+      context: .
+      dockerfile: mock-mib/Dockerfile
+    ports: ["8001:8001"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: forte
+      POSTGRES_USER: forte
+      POSTGRES_PASSWORD: forte
+    volumes:
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forte"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  redisdata:

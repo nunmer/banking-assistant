@@ -2,7 +2,7 @@
 
 Snapshot of what has been built against `README.md` and `IMPLEMENTATION.md`.
 
-_Last updated: 2026-06-23_
+_Last updated: 2026-06-23 (session 2)_
 
 ---
 
@@ -80,16 +80,49 @@ re-implementing the Yandex REST contract. A local `whisper` provider
 
 ---
 
+## Done (session 2)
+
+### Alembic migrations (`orchestrator/alembic/`)
+- `alembic.ini` — config, URL resolved from `settings.DATABASE_URL`
+- `alembic/env.py` — async-engine Alembic env (SQLAlchemy 2 + asyncpg)
+- `alembic/script.py.mako` — revision template
+- `alembic/versions/001_create_scenarios.py` — creates `scenarios` table + seeds
+  the four canonical rows (`transfer`, `balance`, `payment`, `statement`)
+- `orchestrator/requirements.txt` — added `alembic==1.14.0`
+- `orchestrator/Dockerfile` — CMD now runs `alembic upgrade head` before uvicorn
+
+### Session store (`orchestrator/services/session.py`)
+- `session:{user_id}` key in Redis, 24h TTL
+- `get(session_id)` / `touch(session_id, updates?)` — load → merge → persist
+- `chat.py` router touches the session on every request and merges `account_id`
+  (if present) into params, so `balance`/`statement` work without the user
+  repeating their account once it is recorded
+
+### TTS voice replies (`bot/`)
+- `bot/config.py` — new `TTS_VOICE_REPLIES: bool = False` setting
+- `bot/handlers/common.py` — `synthesize()` helper calls `speech-api /tts`,
+  returns OGG bytes or `None` on failure (silent text fallback)
+- `bot/handlers/voice.py` — `_reply()` sends a voice note via
+  `answer_voice(BufferedInputFile(...))` when TTS is enabled and synthesis
+  succeeds; otherwise falls back to plain text
+- `.env.example` — `TTS_VOICE_REPLIES=false` added with explanation
+
+### Unit tests (`tests/`)
+- `tests/conftest.py` — `AsyncClient` fixture against the FastAPI app
+- `tests/test_llm.py` — `_parse()` (valid JSON, markdown-wrapped, surrounding
+  text, invalid) + `IntentResult` model defaults
+- `tests/test_chat.py` — confirm path, unknown intent, low confidence, missing
+  params, session account_id merge for balance
+- `tests/test_confirm.py` — approved→MIB, rejected→cancel, no-pending, MIB
+  error mapping, clear-before-execute ordering
+- `tests/test_mib.py` — success, HTTP 5xx mapping, network error mapping
+- `pytest.ini` — `asyncio_mode = auto`, `testpaths = tests`
+- `requirements-test.txt` — test dependencies
+
+---
+
 ## Not done yet (TODO)
 
-- [ ] **Alembic migrations** (`db/migrations/`) — schema currently created via
-  `seed.sql` on first postgres boot. Add Alembic for prod schema management.
-- [ ] **Wire TTS voice replies into the bot** — `speech-api /tts` exists but the
-  bot still replies with text only (spec lists this as an open problem).
-- [ ] **Tests** — unit tests for `chat` flow (mock llm/scenario/confirm),
-  `confirm/reply`, llm JSON-parse fallback, mib error mapping. Target 80%+.
-- [ ] **Session store** — `session:{user_id}` (account_id, lang) is specced but
-  not yet implemented; needed for `balance`/`statement` which require `account_id`.
 - [ ] **Multi-turn context / follow-up param prompts** (spec open problems).
 - [ ] **Auth / user identity** before MIB calls.
 - [ ] **Kubernetes manifests**.

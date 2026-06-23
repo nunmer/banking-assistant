@@ -20,12 +20,16 @@ async def send_to_orchestrator(session_id: str, text: str, lang: str | None = No
 
 
 async def synthesize(text: str, lang: str | None = None) -> bytes | None:
-    """Call speech-api /tts and return OGG audio bytes, or None on failure."""
+    """Call speech-service /tts/synthesize and return OGG audio bytes, or None on failure."""
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
-                f"{settings.SPEECH_API_URL}/tts",
-                json={"text": text, "lang": lang or settings.SPEECH_DEFAULT_LANG},
+                f"{settings.SPEECH_SERVICE_URL}/tts/synthesize",
+                json={
+                    "text": text,
+                    "lang": lang or settings.SPEECH_DEFAULT_LANG,
+                    "format": "OGG_OPUS",
+                },
             )
             resp.raise_for_status()
             return resp.content

@@ -19,9 +19,9 @@ router = Router()
 async def _transcribe(audio: bytes, lang: str) -> str:
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
-            f"{settings.SPEECH_API_URL}/stt",
-            content=audio,
-            headers={"Content-Type": "audio/ogg", "X-Lang": lang},
+            f"{settings.SPEECH_SERVICE_URL}/stt/recognize",
+            files={"file": ("audio.ogg", audio, "application/octet-stream")},
+            data={"lang": lang},
         )
         resp.raise_for_status()
         return resp.json()["text"]

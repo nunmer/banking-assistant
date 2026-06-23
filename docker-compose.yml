@@ -5,7 +5,9 @@ services:
       context: .
       dockerfile: bot/Dockerfile
     env_file: .env
-    depends_on: [orchestrator, speech-api]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: [orchestrator]
     restart: unless-stopped
 
   orchestrator:
@@ -15,17 +17,6 @@ services:
     ports: ["8000:8000"]
     env_file: .env
     depends_on: [postgres, redis, mock-mib]
-    restart: unless-stopped
-
-  speech-api:
-    build:
-      context: .
-      dockerfile: speech-api/Dockerfile
-    ports: ["8002:8002"]
-    env_file: .env
-    # host.docker.internal lets speech-api reach the speech-service on the host.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   mock-mib:

@@ -8,12 +8,12 @@ from bot.config import settings
 logger = logging.getLogger("bot.common")
 
 
-async def send_to_orchestrator(session_id: str, text: str) -> dict:
+async def send_to_orchestrator(session_id: str, text: str, lang: str | None = None) -> dict:
     """POST a user utterance to the orchestrator /chat endpoint."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{settings.ORCHESTRATOR_URL}/chat",
-            json={"session_id": session_id, "text": text},
+            json={"session_id": session_id, "text": text, "lang": lang},
         )
         resp.raise_for_status()
         return resp.json()

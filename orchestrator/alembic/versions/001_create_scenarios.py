@@ -26,6 +26,7 @@ def upgrade() -> None:
         sa.Column("required_params", JSONB(), nullable=False, server_default="[]"),
         sa.Column("optional_params", JSONB(), nullable=False, server_default="[]"),
         sa.Column("confirm_template", sa.Text(), nullable=False),
+        sa.Column("confirm_templates", JSONB(), nullable=False, server_default="{}"),
         sa.Column("mib_endpoint", sa.String(256), nullable=False),
         sa.Column("mib_method", sa.String(8), nullable=False, server_default="POST"),
         sa.Column("active", sa.Boolean(), nullable=False, server_default="true"),
@@ -39,22 +40,31 @@ def upgrade() -> None:
 
     op.execute(
         sa.text(
-            """
+            r"""
             INSERT INTO scenarios
-                (intent, display_name, required_params, optional_params, confirm_template, mib_endpoint)
+                (intent, display_name, required_params, optional_params,
+                 confirm_template, confirm_templates, mib_endpoint)
             VALUES
                 ('transfer', 'Money Transfer',
                  '["amount","currency","to_account"]', '[]',
-                 'Transfer {amount} {currency} to account {to_account} — confirm?', '/transfer'),
+                 'Перевести {amount} {currency} на счёт {to_account} — подтвердить?',
+                 '{"ru-RU":"Перевести {amount} {currency} на счёт {to_account} — подтвердить?","kk-KZ":"{to_account} шотына {amount} {currency} аудару — растайсыз ба?","en-US":"Transfer {amount} {currency} to account {to_account} — confirm?"}',
+                 '/transfer'),
                 ('balance', 'Account Balance',
                  '[]', '[]',
-                 'Retrieve your account balance — confirm?', '/balance'),
+                 'Узнать баланс счёта — подтвердить?',
+                 '{"ru-RU":"Узнать баланс счёта — подтвердить?","kk-KZ":"Шот балансын білу — растайсыз ба?","en-US":"Retrieve your account balance — confirm?"}',
+                 '/balance'),
                 ('payment', 'Bill Payment',
                  '["bill_id","amount"]', '[]',
-                 'Pay bill {bill_id} for {amount} — confirm?', '/payment'),
+                 'Оплатить счёт {bill_id} на сумму {amount} — подтвердить?',
+                 '{"ru-RU":"Оплатить счёт {bill_id} на сумму {amount} — подтвердить?","kk-KZ":"{bill_id} шотын {amount} сомасына төлеу — растайсыз ба?","en-US":"Pay bill {bill_id} for {amount} — confirm?"}',
+                 '/payment'),
                 ('statement', 'Transaction Statement',
                  '[]', '["limit"]',
-                 'Show your last transactions — confirm?', '/statement')
+                 'Показать последние транзакции — подтвердить?',
+                 '{"ru-RU":"Показать последние транзакции — подтвердить?","kk-KZ":"Соңғы транзакцияларды көрсету — растайсыз ба?","en-US":"Show your last transactions — confirm?"}',
+                 '/statement')
             ON CONFLICT (intent) DO NOTHING
             """
         )

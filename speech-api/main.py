@@ -1,12 +1,15 @@
-"""Thin STT/TTS wrapper service.
+"""Speech API — thin proxy to the ForteBank speech-service.
 
-Exposes a stable interface to the bot (`POST /stt`, `POST /tts`) and routes to
-a configurable provider. The speechkit provider proxies to the existing
-speech-service; the whisper provider runs locally.
+All STT/TTS is delegated to the speech-service running on port 8000
+(SPEECH_SERVICE_URL).  This service normalises the interface for the bot:
+  POST /stt  — raw audio bytes + X-Lang header → {"text": "..."}
+  POST /tts  — JSON {text, lang?, voice?} → audio/ogg bytes
+
+Supported languages: kk-KZ, ru-RU, en-US.
 """
-import importlib
 import logging
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -19,10 +22,12 @@ logger = logging.getLogger("speech-api")
 app = FastAPI(title="Forte Speech API")
 
 
-def _provider():
-    """Import the configured provider module lazily."""
-    name = config.PROVIDER if config.PROVIDER in ("speechkit", "whisper") else "whisper"
-    return importlib.import_module(f"providers.{name}")
+def _stt_url() -> str:
+    return f"{config.SPEECH_SERVICE_URL}/stt/recognize"
+
+
+def _tts_url() -> str:
+    return f"{config.SPEECH_SERVICE_URL}/tts/synthesize"
 
 
 class TTSRequest(BaseModel):
@@ -33,7 +38,7 @@ class TTSRequest(BaseModel):
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "provider": config.PROVIDER}
+    return {"status": "ok", "speech_service": config.SPEECH_SERVICE_URL}
 
 
 @app.post("/stt")
@@ -43,12 +48,24 @@ async def stt(request: Request, x_lang: str = Header(default=None)) -> dict:
         raise HTTPException(status_code=400, detail="Empty audio body")
 
     lang = x_lang or config.DEFAULT_LANG
-    try:
-        text = await _provider().transcribe(audio, lang=lang)
-    except Exception as e:  # noqa: BLE001 — surface provider failures as 502
-        logger.error("STT failed [%s]: %s", config.PROVIDER, e)
-        raise HTTPException(status_code=502, detail=f"STT failed: {e}")
+    logger.info("STT request lang=%s size=%d", lang, len(audio))
 
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                _stt_url(),
+                files={"file": ("audio.ogg", audio, "application/octet-stream")},
+                data={"lang": lang, "engine": config.SPEECH_ENGINE},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error("speech-service STT error %s: %s", e.response.status_code, e.response.text)
+        raise HTTPException(status_code=502, detail=f"STT failed: {e.response.status_code}")
+    except httpx.HTTPError as e:
+        logger.error("speech-service unreachable: %s", e)
+        raise HTTPException(status_code=502, detail="Speech service unavailable")
+
+    text = resp.json().get("text", "")
     return {"text": text}
 
 
@@ -58,15 +75,27 @@ async def tts(req: TTSRequest) -> Response:
         raise HTTPException(status_code=400, detail="text must not be empty")
 
     lang = req.lang or config.DEFAULT_LANG
-    try:
-        audio = await _provider().synthesize(req.text, lang=lang, voice=req.voice)
-    except NotImplementedError:
-        raise HTTPException(
-            status_code=501,
-            detail=f"TTS not supported by provider '{config.PROVIDER}'",
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error("TTS failed [%s]: %s", config.PROVIDER, e)
-        raise HTTPException(status_code=502, detail=f"TTS failed: {e}")
+    voice = req.voice or config.TTS_VOICE.get(lang, config.TTS_VOICE_DEFAULT)
+    logger.info("TTS request lang=%s voice=%s chars=%d", lang, voice, len(req.text))
 
-    return Response(content=audio, media_type="audio/ogg")
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                _tts_url(),
+                params={"engine": config.SPEECH_ENGINE},
+                json={
+                    "text": req.text,
+                    "voice": voice,
+                    "lang": lang,
+                    "format": "OGG_OPUS",
+                },
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error("speech-service TTS error %s: %s", e.response.status_code, e.response.text)
+        raise HTTPException(status_code=502, detail=f"TTS failed: {e.response.status_code}")
+    except httpx.HTTPError as e:
+        logger.error("speech-service unreachable: %s", e)
+        raise HTTPException(status_code=502, detail="Speech service unavailable")
+
+    return Response(content=resp.content, media_type="audio/ogg")

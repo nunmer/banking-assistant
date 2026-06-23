@@ -48,7 +48,7 @@ async def test_chat_returns_confirm_for_transfer(client):
         ),
         patch(
             "orchestrator.services.session.touch",
-            new=AsyncMock(return_value={}),
+            new=AsyncMock(return_value={"lang": "en-US"}),
         ),
     ):
         resp = await client.post("/chat", json={"session_id": "u1", "text": "Transfer 500 USD to KZ123"})
@@ -69,7 +69,7 @@ async def test_chat_unknown_intent_returns_reply(client):
                 return_value=IntentResult(intent="unknown", params={}, confidence=0.9)
             ),
         ),
-        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={})),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
         resp = await client.post("/chat", json={"session_id": "u2", "text": "Play music"})
 
@@ -86,7 +86,7 @@ async def test_chat_low_confidence_returns_reply(client):
                 return_value=IntentResult(intent="transfer", params={}, confidence=0.1)
             ),
         ),
-        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={})),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
         resp = await client.post("/chat", json={"session_id": "u3", "text": "hmm"})
 
@@ -111,7 +111,7 @@ async def test_chat_missing_params_returns_reply(client):
             "orchestrator.services.scenario.get",
             new=AsyncMock(return_value=_TRANSFER_SCENARIO),
         ),
-        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={})),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
         resp = await client.post("/chat", json={"session_id": "u4", "text": "Transfer 100"})
 
@@ -141,7 +141,7 @@ async def test_chat_session_account_id_fills_balance(client):
         ),
         patch(
             "orchestrator.services.session.touch",
-            new=AsyncMock(return_value={"account_id": "ACC-42"}),
+            new=AsyncMock(return_value={"lang": "en-US", "account_id": "ACC-42"}),
         ),
     ):
         resp = await client.post("/chat", json={"session_id": "u5", "text": "balance"})

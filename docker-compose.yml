@@ -23,8 +23,7 @@ services:
       dockerfile: speech-api/Dockerfile
     ports: ["8002:8002"]
     env_file: .env
-    # host.docker.internal lets the speechkit provider reach a speech-service
-    # running on the host.
+    # host.docker.internal lets speech-api reach the speech-service on the host.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

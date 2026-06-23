@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     session_id: str
     text: str
+    lang: str | None = None  # BCP-47 tag from the bot (kk-KZ | ru-RU | en-US)
 
 
 class ChatResponse(BaseModel):

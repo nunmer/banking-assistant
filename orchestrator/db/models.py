@@ -20,6 +20,8 @@ class Scenario(Base):
     required_params: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     optional_params: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     confirm_template: Mapped[str] = mapped_column(Text, nullable=False)
+    # Per-language confirm templates: {"ru-RU": "...", "kk-KZ": "...", "en-US": "..."}
+    confirm_templates: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     mib_endpoint: Mapped[str] = mapped_column(String(256), nullable=False)
     mib_method: Mapped[str] = mapped_column(String(8), nullable=False, default="POST")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

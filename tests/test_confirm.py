@@ -1,9 +1,11 @@
-"""Unit tests for POST /confirm/reply — mocks confirm store and MIB client."""
+"""Unit tests for POST /confirm/reply — mocks confirm store, session, and MIB client."""
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from orchestrator.models import MIBResult
+
+_SESSION = {"lang": "en-US"}
 
 _PENDING = {
     "scenario_intent": "transfer",
@@ -28,15 +30,10 @@ _ERROR = MIBResult(
 @pytest.mark.asyncio
 async def test_confirm_approved_calls_mib(client):
     with (
-        patch(
-            "orchestrator.services.confirm.get_pending",
-            new=AsyncMock(return_value=_PENDING),
-        ),
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
         patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
-        patch(
-            "orchestrator.services.mib.execute",
-            new=AsyncMock(return_value=_SUCCESS),
-        ),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_SUCCESS)),
     ):
         resp = await client.post(
             "/confirm/reply", json={"session_id": "u1", "approved": True}
@@ -51,10 +48,8 @@ async def test_confirm_approved_calls_mib(client):
 @pytest.mark.asyncio
 async def test_confirm_rejected_cancels(client):
     with (
-        patch(
-            "orchestrator.services.confirm.get_pending",
-            new=AsyncMock(return_value=_PENDING),
-        ),
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
         patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
     ):
         resp = await client.post(
@@ -67,9 +62,9 @@ async def test_confirm_rejected_cancels(client):
 
 @pytest.mark.asyncio
 async def test_confirm_no_pending(client):
-    with patch(
-        "orchestrator.services.confirm.get_pending",
-        new=AsyncMock(return_value=None),
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
     ):
         resp = await client.post(
             "/confirm/reply", json={"session_id": "u99", "approved": True}
@@ -82,15 +77,10 @@ async def test_confirm_no_pending(client):
 @pytest.mark.asyncio
 async def test_confirm_mib_error_returns_friendly_message(client):
     with (
-        patch(
-            "orchestrator.services.confirm.get_pending",
-            new=AsyncMock(return_value=_PENDING),
-        ),
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
         patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
-        patch(
-            "orchestrator.services.mib.execute",
-            new=AsyncMock(return_value=_ERROR),
-        ),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_ERROR)),
     ):
         resp = await client.post(
             "/confirm/reply", json={"session_id": "u1", "approved": True}
@@ -115,10 +105,8 @@ async def test_confirm_clears_before_mib_to_prevent_double_execute(client):
         return _SUCCESS
 
     with (
-        patch(
-            "orchestrator.services.confirm.get_pending",
-            new=AsyncMock(return_value=_PENDING),
-        ),
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
         patch("orchestrator.services.confirm.clear_pending", side_effect=fake_clear),
         patch("orchestrator.services.mib.execute", side_effect=fake_mib),
     ):
@@ -127,3 +115,18 @@ async def test_confirm_clears_before_mib_to_prevent_double_execute(client):
         )
 
     assert call_order == ["clear", "mib"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_kazakh_session_returns_kazakh_cancel(client):
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value={"lang": "kk-KZ"})),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+    ):
+        resp = await client.post(
+            "/confirm/reply", json={"session_id": "u20", "approved": False}
+        )
+
+    assert resp.status_code == 200
+    assert "Бас тартылды" in resp.json()["message"]

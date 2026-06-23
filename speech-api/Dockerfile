@@ -1,9 +1,5 @@
 FROM python:3.12-slim
 
-# ffmpeg for decoding OGG/Opus voice notes.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY speech-api/requirements.txt ./requirements.txt

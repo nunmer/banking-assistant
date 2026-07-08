@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from orchestrator.config import settings
 from orchestrator.i18n import t
 from orchestrator.models import ChatRequest, ChatResponse
-from orchestrator.services import confirm, llm, scenario, session
+from orchestrator.services import affirm, confirm, llm, mib, scenario, session, speechtext
 
 logger = logging.getLogger("orchestrator.chat")
 
@@ -19,6 +19,23 @@ async def chat(req: ChatRequest) -> ChatResponse:
     session_updates = {"lang": req.lang} if req.lang else None
     user_session = await session.touch(req.session_id, updates=session_updates)
     lang = user_session.get("lang", "ru-RU")
+
+    # 1a. If a confirmation is pending, a spoken/typed yes/no resolves it.
+    pending = await confirm.get_pending(req.session_id)
+    if pending is not None:
+        decision = affirm.classify_reply(req.text)
+        if decision == "yes":
+            await confirm.clear_pending(req.session_id)
+            result = await mib.execute(
+                endpoint=pending["mib_endpoint"],
+                params=pending["params"],
+                method=pending.get("mib_method", "POST"),
+            )
+            return ChatResponse(action="reply", message=result.message)
+        if decision == "no":
+            await confirm.clear_pending(req.session_id)
+            return ChatResponse(action="reply", message=t(lang, "cancelled"))
+        # Not a yes/no — fall through and treat it as a brand-new request.
 
     # 2. Classify intent via LLM.
     intent_result = await llm.classify(req.text, req.session_id)
@@ -66,7 +83,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
     template = templates.get(lang) or sc.confirm_template
     try:
         msg = template.format(**params)
+        # Spoken variant: spell out account/bill numbers digit-by-digit.
+        speech = template.format(**speechtext.speech_params(params))
     except (KeyError, IndexError):
         msg = f"{sc.display_name}?"
+        speech = None
 
-    return ChatResponse(action="confirm", message=msg)
+    speech = speech if speech and speech != msg else None
+    return ChatResponse(action="confirm", message=msg, speech=speech)

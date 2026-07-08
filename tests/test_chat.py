@@ -47,6 +47,10 @@ async def test_chat_returns_confirm_for_transfer(client):
             new=AsyncMock(),
         ),
         patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
             "orchestrator.services.session.touch",
             new=AsyncMock(return_value={"lang": "en-US"}),
         ),
@@ -69,6 +73,10 @@ async def test_chat_unknown_intent_returns_reply(client):
                 return_value=IntentResult(intent="unknown", params={}, confidence=0.9)
             ),
         ),
+        patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
+        ),
         patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
         resp = await client.post("/chat", json={"session_id": "u2", "text": "Play music"})
@@ -85,6 +93,10 @@ async def test_chat_low_confidence_returns_reply(client):
             new=AsyncMock(
                 return_value=IntentResult(intent="transfer", params={}, confidence=0.1)
             ),
+        ),
+        patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
         ),
         patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
@@ -110,6 +122,10 @@ async def test_chat_missing_params_returns_reply(client):
         patch(
             "orchestrator.services.scenario.get",
             new=AsyncMock(return_value=_TRANSFER_SCENARIO),
+        ),
+        patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
         ),
         patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
     ):
@@ -138,6 +154,10 @@ async def test_chat_session_account_id_fills_balance(client):
         patch(
             "orchestrator.services.confirm.create_pending",
             new=AsyncMock(),
+        ),
+        patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "orchestrator.services.session.touch",

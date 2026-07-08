@@ -34,6 +34,12 @@ async def set_lang(req: LangRequest) -> dict:
     return {"ok": True, "lang": req.lang}
 
 
+@_session_router.get("/lang/{session_id}")
+async def get_lang(session_id: str) -> dict:
+    data = await session_svc.get(session_id)
+    return {"lang": data.get("lang", session_svc.DEFAULT_LANG)}
+
+
 app.include_router(_session_router)
 
 

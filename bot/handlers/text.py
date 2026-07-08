@@ -7,9 +7,12 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from bot.config import settings
-from bot.handlers.common import send_to_orchestrator
+from bot.handlers.common import get_user_lang, send_to_orchestrator
 from bot.i18n import DEFAULT_LANG, SUPPORTED, resolve_lang, t
-from bot.keyboards import confirm_keyboard
+from bot.keyboards import confirm_keyboard, lang_keyboard
+
+# Bilingual prompt shown above the language picker (user may not have a lang yet).
+LANG_PROMPT = "Тілді таңдаңыз / Выберите язык / Choose your language:"
 
 logger = logging.getLogger("bot.text")
 
@@ -25,20 +28,36 @@ def _user_lang(message: Message) -> str:
     return resolve_lang(message.from_user.language_code) or DEFAULT_LANG
 
 
+async def _persist_lang(session_id: str, lang: str) -> None:
+    """Best-effort persist of the user's language to the orchestrator session."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.ORCHESTRATOR_URL}/session/lang",
+                json={"session_id": session_id, "lang": lang},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        logger.warning("failed to persist lang: %s", e)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message) -> None:
     lang = _user_lang(message)
+    # Seed the session with the Telegram locale so voice works on first use.
+    await _persist_lang(str(message.from_user.id), lang)
     await message.answer(t(lang, "start"))
 
 
 @router.message(Command("lang"))
 async def handle_lang(message: Message) -> None:
-    """Set preferred language: /lang kk | ru | en"""
+    """Show the language picker, or set directly via /lang kk | ru | en."""
     current_lang = _user_lang(message)
     args = (message.text or "").split(maxsplit=1)
+
+    # No argument → show the inline flag buttons.
     if len(args) < 2:
-        lang_name = current_lang
-        await message.answer(t(current_lang, "lang_current").format(lang_name))
+        await message.answer(LANG_PROMPT, reply_markup=lang_keyboard())
         return
 
     code = args[1].strip().lower()
@@ -47,28 +66,31 @@ async def handle_lang(message: Message) -> None:
         await message.answer(t(current_lang, "lang_unknown"))
         return
 
-    # Persist lang in the session via the orchestrator /chat with a neutral text.
-    # The simplest approach: send a dummy chat request that sets the lang.
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{settings.ORCHESTRATOR_URL}/session/lang",
-                json={"session_id": str(message.from_user.id), "lang": new_lang},
-            )
-            resp.raise_for_status()
-    except httpx.HTTPError:
-        pass  # Non-fatal — the lang will be picked up on the next real message.
-
+    await _persist_lang(str(message.from_user.id), new_lang)
     await message.answer(t(new_lang, "lang_set"))
+
+
+@router.callback_query(F.data.startswith("setlang:"))
+async def handle_setlang_callback(callback: CallbackQuery) -> None:
+    new_lang = callback.data.split(":", 1)[1]
+    if new_lang not in SUPPORTED:
+        await callback.answer()
+        return
+
+    await _persist_lang(str(callback.from_user.id), new_lang)
+    await callback.message.edit_text(t(new_lang, "lang_set"))
+    await callback.answer()
 
 
 @router.message(F.text)
 async def handle_text(message: Message) -> None:
     session_id = str(message.from_user.id)
-    lang = _user_lang(message)
+    # Persisted session language is the source of truth; omit lang on /chat so
+    # it is not overwritten by the Telegram locale.
+    lang = await get_user_lang(session_id, fallback=_user_lang(message))
 
     try:
-        data = await send_to_orchestrator(session_id, message.text, lang=lang)
+        data = await send_to_orchestrator(session_id, message.text)
     except httpx.HTTPError as e:
         logger.error("orchestrator call failed: %s", e)
         await message.answer(t(lang, "error_generic"))

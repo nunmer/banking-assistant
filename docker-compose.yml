@@ -32,8 +32,9 @@ services:
       POSTGRES_DB: forte
       POSTGRES_USER: forte
       POSTGRES_PASSWORD: forte
+    # Schema + seed data are owned by Alembic (orchestrator runs
+    # `alembic upgrade head` on startup), so no initdb seed mount here.
     volumes:
-      - ./db/seed.sql:/docker-entrypoint-initdb.d/seed.sql
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forte"]

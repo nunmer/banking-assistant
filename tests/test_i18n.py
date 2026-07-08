@@ -68,6 +68,10 @@ async def test_chat_kazakh_returns_kazakh_confirm(client):
         ),
         patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
         patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
             "orchestrator.services.session.touch",
             new=AsyncMock(return_value={"lang": "kk-KZ"}),
         ),
@@ -92,6 +96,10 @@ async def test_chat_russian_returns_russian_error(client):
             new=AsyncMock(
                 return_value=IntentResult(intent="unknown", params={}, confidence=0.9)
             ),
+        ),
+        patch(
+            "orchestrator.services.confirm.get_pending",
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "orchestrator.services.session.touch",

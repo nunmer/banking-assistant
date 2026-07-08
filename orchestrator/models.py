@@ -11,6 +11,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     action: str  # "confirm" | "reply"
     message: str
+    # Optional TTS-optimized variant of `message` (e.g. account numbers spelled
+    # out digit-by-digit). The bot displays `message` but synthesizes `speech`.
+    speech: str | None = None
 
 
 class IntentResult(BaseModel):

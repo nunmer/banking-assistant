@@ -7,7 +7,9 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on: [orchestrator]
+    depends_on:
+      orchestrator:
+        condition: service_healthy
     restart: unless-stopped
 
   orchestrator:
@@ -16,7 +18,19 @@ services:
       dockerfile: orchestrator/Dockerfile
     ports: ["8080:8000"]
     env_file: .env
-    depends_on: [postgres, redis, mock-mib]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-mib:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   mock-mib:
@@ -24,6 +38,12 @@ services:
       context: .
       dockerfile: mock-mib/Dockerfile
     ports: ["8001:8001"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   postgres:
@@ -41,11 +61,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata:

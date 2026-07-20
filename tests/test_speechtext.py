@@ -44,3 +44,27 @@ class TestForSpeech:
 
     def test_amount_untouched(self):
         assert speechtext.for_speech({"amount": "500"}, "en-US")["amount"] == "500"
+
+
+class TestPhone:
+    def test_display_grouped_from_plus7(self):
+        assert speechtext.format_phone("+77755437575") == "8 (775) 543 75 75"
+
+    def test_display_grouped_from_10_digits(self):
+        assert speechtext.format_phone("7755437575") == "8 (775) 543 75 75"
+
+    def test_speech_groups_as_numbers(self):
+        # Comma-separated groups so TTS reads whole numbers, not digit-by-digit.
+        assert speechtext.format_phone("87755437575", for_speech=True) == "8, 775, 543, 75, 75"
+
+    def test_for_display_formats_phone(self):
+        out = speechtext.for_display({"phone": "+77012345678", "amount": "5000"}, "ru-RU")
+        assert out["phone"] == "8 (701) 234 56 78"
+        assert out["amount"] == "5000"
+
+    def test_for_speech_groups_phone(self):
+        assert speechtext.for_speech({"phone": "+77012345678"}, "ru-RU")["phone"] == "8, 701, 234, 56, 78"
+
+    def test_unexpected_shape_falls_back(self):
+        assert speechtext.format_phone("12345") == "12345"  # display: raw
+        assert speechtext.format_phone("12345", for_speech=True) == "1 2 3 4 5"  # speech: spelled

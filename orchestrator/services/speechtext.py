@@ -8,12 +8,13 @@ Two concerns:
   TTS variant only, so they are read one character at a time.
 """
 
+import re
+
 DEFAULT_LANG = "ru-RU"
 
 # Params whose values are identifiers, not quantities — spelled out for TTS.
-IDENTIFIER_PARAMS = frozenset(
-    {"to_account", "account_id", "bill_id", "phone", "card_last4"}
-)
+# `phone` is handled separately (grouped, not digit-by-digit).
+IDENTIFIER_PARAMS = frozenset({"to_account", "account_id", "bill_id", "card_last4"})
 
 # Currency-code params, localised to a spoken/written word.
 _CURRENCY_WORDS = {
@@ -57,6 +58,31 @@ def spell_out(value: str) -> str:
     return " ".join(ch for ch in str(value) if not ch.isspace())
 
 
+def format_phone(value: str, for_speech: bool = False) -> str:
+    """Format a Kazakhstan phone number in the local grouped style.
+
+    Display:  8 (775) 543 75 75
+    Speech:   8, 775, 543, 75, 75  — comma-separated groups so TTS reads each as
+              a whole number ("семьсот семьдесят пять"), not merged or spelled
+              digit-by-digit.
+    Falls back to the raw value (display) / spelled-out digits (speech) if the
+    number isn't the expected 10-digit KZ shape.
+    """
+    digits = re.sub(r"\D", "", str(value))
+    if len(digits) == 11 and digits[0] in "78":
+        rest = digits[1:]
+    elif len(digits) == 10:
+        rest = digits
+    else:
+        rest = ""
+    if len(rest) != 10:
+        return spell_out(value) if for_speech else str(value)
+    a, b, c, d = rest[:3], rest[3:6], rest[6:8], rest[8:10]
+    if for_speech:
+        return f"8, {a}, {b}, {c}, {d}"
+    return f"8 ({a}) {b} {c} {d}"
+
+
 def _localize(param: str, value: str, lang: str) -> str:
     """Map an enum-like value to its natural word, or return it unchanged."""
     table = _LOCALIZED[param].get(lang) or _LOCALIZED[param].get(DEFAULT_LANG, {})
@@ -65,18 +91,25 @@ def _localize(param: str, value: str, lang: str) -> str:
 
 
 def for_display(params: dict, lang: str) -> dict:
-    """Params for the on-screen message: enum values as natural words."""
-    return {
-        key: _localize(key, val, lang) if key in _LOCALIZED else val
-        for key, val in params.items()
-    }
+    """Params for the on-screen message: enum words + grouped phone number."""
+    out = {}
+    for key, val in params.items():
+        if key == "phone":
+            out[key] = format_phone(val, for_speech=False)
+        elif key in _LOCALIZED:
+            out[key] = _localize(key, val, lang)
+        else:
+            out[key] = val
+    return out
 
 
 def for_speech(params: dict, lang: str) -> dict:
-    """Params for the TTS variant: enum words + identifiers spelled out."""
+    """Params for the TTS variant: enum words, grouped phone, identifiers spelled out."""
     out = {}
     for key, val in params.items():
-        if key in _LOCALIZED:
+        if key == "phone":
+            out[key] = format_phone(val, for_speech=True)
+        elif key in _LOCALIZED:
             out[key] = _localize(key, val, lang)
         elif key in IDENTIFIER_PARAMS:
             out[key] = spell_out(val)

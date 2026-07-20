@@ -57,6 +57,13 @@ Choosing between similar intents:
 - navigation      — how-to / where-is questions (ATM, branch, app steps).
 - manager         — the user asks to talk to a human/manager.
 
+Important: if the user clearly names an operation but leaves out details
+(amount, account, card, phone, term, …), STILL return that intent with high
+confidence and whatever parameters are present (possibly none) — the missing
+details are collected in a follow-up question. A bare "I want to transfer money"
+or "хочу открыть депозит" is a confident intent, not "unknown". Use "unknown"
+only when the message is not a banking request at all.
+
 Parameter rules:
 - amount: numeric string (digits only, no currency symbols)
 - currency: ISO 4217 code (USD, KZT, EUR, RUB, …).  Infer from text:

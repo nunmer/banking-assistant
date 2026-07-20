@@ -89,21 +89,30 @@ resolves and confirms in the right language.
 
 ---
 
-### 4. Multi-step parameter collection — ask one field at a time ⬜  *(core infra)*
+### 4. Multi-step parameter collection — ask one field at a time ✅  *(core infra)*
 **Goal:** When required params are missing, the bot asks for them one by one
 instead of a single "missing: a, b, c" message.
 
-**Current state:** `routers/chat.py` step 5 returns a flat `missing_params`
-message and stops. Listed as an open TODO in `PROGRESS.md`.
+**Done (orchestrator-only — no bot changes):**
+- `services/slotfill.py`: Redis-backed in-progress collection
+  (`{intent, params, missing, lang}`), separate key with a short `SLOTFILL_TTL`
+  (300s) so a half-finished collection expires quickly.
+- `llm.extract_param(text, intent, param, lang)`: focused single-slot extraction
+  so bare answers ("12 months", "100000", "тенге") fill the asked slot.
+- `i18n.slot_prompt(lang, param)`: per-language prompt per slot, with a generic
+  fallback for params not yet listed.
+- `routers/chat.py`: refactored around a shared `_advance()` that validates →
+  asks the next missing slot (`action="collect"`) or confirms. Handles
+  **cancel** ("no"/"отмена") and **context switch** (a new high-confidence
+  intent mid-collection abandons the old one).
+- New `ChatResponse.action="collect"`; the bot treats it like any reply (no
+  change needed — voice replies naturally speak the prompt).
 
-**Do:** Introduce a "slot-filling" pending state in the session (Redis) holding
-the intent + params gathered so far + the next slot to ask. On each turn, merge
-the user's answer into the slot, re-validate, and either ask the next slot or
-proceed to confirmation. Reuse `session.py`; keep it immutable (new dict per
-update). Per-language prompt per slot.
+**Tests:** slot-fill continuation, ask-next-slot, cancel, context-switch, and
+`extract_param` parsing. Full suite green (36 passed).
 
-**Acceptance:** "Открой депозит" → bot asks term → asks amount → confirms.
-This unblocks tasks 5–11, which all have multiple params.
+**Acceptance:** missing params now drive one-at-a-time collection → confirm. ✅
+Unblocks tasks 5–11.
 
 ---
 

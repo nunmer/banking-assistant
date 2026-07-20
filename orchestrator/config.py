@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     # Confirmation TTL (seconds) — user has this long to approve.
     CONFIRM_TTL: int = 120
+    # Slot-filling TTL (seconds) — a half-finished parameter collection expires
+    # after this so it doesn't linger for the whole session.
+    SLOTFILL_TTL: int = 300
     # Session TTL (seconds) — 24h.
     SESSION_TTL: int = 60 * 60 * 24
 

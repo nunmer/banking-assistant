@@ -101,6 +101,56 @@ def _parse(raw: str) -> dict:
         return json.loads(match.group(0))
 
 
+# Focused single-slot extraction, used during multi-turn parameter collection.
+# The user was asked for one specific parameter; pull just that value out of
+# their reply. Giving the model the parameter name as context lets it handle
+# bare answers ("12 months", "100000", "тенге") that a full classify would miss.
+_EXTRACT_PROMPT = """
+You are helping a ForteBank assistant collect one missing parameter.
+The user is performing intent "{intent}" and was just asked to provide "{param}".
+Extract ONLY the value of "{param}" from their reply.
+
+Rules for the value:
+- amount / limit: digits only, no currency symbols or words.
+- currency: ISO 4217 code (KZT, USD, EUR, RUB). "тенге/теңге"→KZT, "доллар"→USD, "евро"→EUR.
+- to_account / bill_id: the identifier exactly as given.
+- Any other parameter: the literal value the user provided.
+
+Respond ONLY with JSON: {{"value": "<value>"}} — or {{"value": null}} if the
+reply does not contain the requested parameter.
+No explanation. No markdown.
+""".strip()
+
+
+async def extract_param(text: str, intent: str, param: str, lang: str) -> str | None:
+    """Extract a single named parameter from a follow-up reply, or None.
+
+    `lang` is accepted for symmetry/logging; the extraction is language-agnostic
+    because the prompt lists the multilingual cues explicitly.
+    """
+    response = await client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": _EXTRACT_PROMPT.format(intent=intent, param=param)},
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+    )
+    raw = response.choices[0].message.content or "{}"
+    try:
+        data = _parse(raw)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("extract_param unparseable output: %r", raw)
+        return None
+
+    value = data.get("value")
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
 async def classify(text: str, session_id: str) -> IntentResult:
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,

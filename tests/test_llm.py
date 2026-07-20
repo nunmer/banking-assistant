@@ -1,10 +1,18 @@
 """Unit tests for orchestrator/services/llm.py — pure parsing logic, no API calls."""
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from orchestrator.services import llm
 from orchestrator.services.llm import _parse
 from orchestrator.models import IntentResult
+
+
+def _fake_completion(content: str) -> MagicMock:
+    """Build a stand-in for an OpenAI chat completion with the given content."""
+    message = MagicMock(content=content)
+    return MagicMock(choices=[MagicMock(message=message)])
 
 
 class TestParse:
@@ -34,3 +42,37 @@ class TestIntentResult:
     def test_params_is_dict(self):
         r = IntentResult(intent="transfer", params={"amount": "500", "currency": "USD", "to_account": "KZ1"})
         assert r.params["amount"] == "500"
+
+
+class TestExtractParam:
+    @pytest.mark.asyncio
+    async def test_extracts_value(self):
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion('{"value": "12"}')),
+        ):
+            assert await llm.extract_param("12 months", "deposit_open", "term", "en-US") == "12"
+
+    @pytest.mark.asyncio
+    async def test_null_value_returns_none(self):
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion('{"value": null}')),
+        ):
+            assert await llm.extract_param("hello there", "transfer", "amount", "en-US") is None
+
+    @pytest.mark.asyncio
+    async def test_blank_value_returns_none(self):
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion('{"value": "   "}')),
+        ):
+            assert await llm.extract_param("uh", "transfer", "amount", "en-US") is None
+
+    @pytest.mark.asyncio
+    async def test_unparseable_returns_none(self):
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion("not json")),
+        ):
+            assert await llm.extract_param("x", "transfer", "amount", "en-US") is None

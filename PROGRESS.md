@@ -123,7 +123,8 @@ re-implementing the Yandex REST contract. A local `whisper` provider
 
 ## Not done yet (TODO)
 
-- [ ] **Multi-turn context / follow-up param prompts** (spec open problems).
+- [x] **Multi-turn context / follow-up param prompts** — slot-filling via
+  `services/slotfill.py` + `llm.extract_param` + `chat._advance` (2026-07-20).
 - [ ] **Auth / user identity** before MIB calls.
 - [ ] **Kubernetes manifests**.
 - [ ] Local validation: `docker compose build` / `up` not yet run in this env.

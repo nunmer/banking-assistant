@@ -46,3 +46,47 @@ def t(lang: str, key: str, **kwargs: str) -> str:
     bucket = _MESSAGES.get(lang) or _MESSAGES[DEFAULT_LANG]
     template = bucket.get(key) or _MESSAGES["en-US"].get(key, key)
     return template.format(**kwargs) if kwargs else template
+
+
+# Per-language prompt for each parameter, asked one at a time during multi-turn
+# collection. New scenarios add their parameters here; anything missing falls
+# back to a generic "please provide {param}" so collection still works.
+_SLOT_PROMPTS: dict[str, dict[str, str]] = {
+    "ru-RU": {
+        "amount": "На какую сумму?",
+        "currency": "В какой валюте? (KZT, USD, EUR)",
+        "to_account": "На какой счёт перевести? Укажите номер счёта.",
+        "bill_id": "Укажите номер счёта для оплаты.",
+        "limit": "Сколько последних транзакций показать?",
+    },
+    "kk-KZ": {
+        "amount": "Қандай сома?",
+        "currency": "Қай валютада? (KZT, USD, EUR)",
+        "to_account": "Қай шотқа аудару керек? Шот нөмірін көрсетіңіз.",
+        "bill_id": "Төлейтін шот нөмірін көрсетіңіз.",
+        "limit": "Соңғы неше транзакцияны көрсетейін?",
+    },
+    "en-US": {
+        "amount": "What amount?",
+        "currency": "Which currency? (KZT, USD, EUR)",
+        "to_account": "Which account? Please provide the account number.",
+        "bill_id": "Please provide the bill number.",
+        "limit": "How many recent transactions?",
+    },
+}
+
+_SLOT_FALLBACK = {
+    "ru-RU": "Пожалуйста, укажите: {param}",
+    "kk-KZ": "Мынаны көрсетіңіз: {param}",
+    "en-US": "Please provide: {param}",
+}
+
+
+def slot_prompt(lang: str, param: str) -> str:
+    """Return the localised prompt asking the user for one parameter."""
+    bucket = _SLOT_PROMPTS.get(lang) or _SLOT_PROMPTS[DEFAULT_LANG]
+    prompt = bucket.get(param)
+    if prompt:
+        return prompt
+    fallback = _SLOT_FALLBACK.get(lang) or _SLOT_FALLBACK[DEFAULT_LANG]
+    return fallback.format(param=param)

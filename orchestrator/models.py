@@ -9,7 +9,10 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    action: str  # "confirm" | "reply"
+    # "confirm" — awaiting yes/no; "collect" — asking for a missing parameter;
+    # "reply" — terminal message. The bot only special-cases "confirm" (adds the
+    # inline keyboard); "collect" and "reply" are shown/spoken as plain messages.
+    action: str
     message: str
     # Optional TTS-optimized variant of `message` (e.g. account numbers spelled
     # out digit-by-digit). The bot displays `message` but synthesizes `speech`.

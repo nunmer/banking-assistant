@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestrator.i18n import t
+from orchestrator.i18n import _SLOT_PROMPTS, slot_prompt, t
 from orchestrator.models import IntentResult
 
 _TRANSFER_SCENARIO = MagicMock(
@@ -47,6 +47,26 @@ class TestI18nHelper:
         assert "Отменено" in t("ru-RU", "cancelled")
         assert "Бас тартылды" in t("kk-KZ", "cancelled")
         assert "Cancelled" in t("en-US", "cancelled")
+
+
+class TestSlotPrompt:
+    # Required params introduced with the expanded scenarios — each needs a
+    # dedicated prompt in every language, not the generic fallback.
+    NEW_PARAMS = [
+        "from_account_kind", "to_account_kind", "phone", "term", "card_last4",
+        "limit_kind", "limit_amount", "period", "cert_kind",
+    ]
+
+    @pytest.mark.parametrize("lang", ["ru-RU", "kk-KZ", "en-US"])
+    def test_new_params_have_dedicated_prompts(self, lang):
+        for param in self.NEW_PARAMS:
+            assert param in _SLOT_PROMPTS[lang], f"{param} missing for {lang}"
+            assert slot_prompt(lang, param) == _SLOT_PROMPTS[lang][param]
+
+    def test_unknown_param_uses_fallback(self):
+        msg = slot_prompt("ru-RU", "nonexistent")
+        assert "nonexistent" in msg
+        assert "{param}" not in msg  # placeholder was interpolated
 
 
 @pytest.mark.asyncio

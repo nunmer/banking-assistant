@@ -34,7 +34,19 @@ Schema:
   "confidence": 0.0-1.0
 }
 
-Available intents: transfer, balance, payment, statement, unknown
+Available intents: transfer, transfer_own, transfer_phone, balance, payment,
+statement, statement_pdf, deposit_open, card_block, card_unblock, card_limit,
+certificate, navigation, manager, unknown
+
+Choosing between similar intents:
+- transfer        — to an external account/IBAN the user names ("на счёт KZ123").
+- transfer_own    — between the user's OWN accounts named by kind
+                    ("с тенгового на долларовый").
+- transfer_phone  — to a phone number ("на номер +7 701 …").
+- statement       — a list of recent transactions ("последние 5 транзакций").
+- statement_pdf   — a statement document for a period ("выписку за месяц").
+- navigation      — how-to / where-is questions (ATM, branch, app steps).
+- manager         — the user asks to talk to a human/manager.
 
 Parameter rules:
 - amount: numeric string (digits only, no currency symbols)
@@ -44,6 +56,16 @@ Parameter rules:
 - to_account: account number or IBAN as provided by the user.
 - bill_id: identifier of the bill/utility.
 - limit: number of transactions as a string.
+- from_account_kind / to_account_kind: the user's own account by kind, as a
+    currency code — "тенговый/tenge"→KZT, "долларовый/dollar"→USD, "евровый/euro"→EUR.
+- phone: recipient phone number, digits with country code if given (e.g. +77012345678).
+- term: deposit term in months (digits only).
+- card_last4: the last 4 digits of a card.
+- card_kind: card type/name if named (gold, platinum, salary, …); optional.
+- limit_kind: "daily" or "monthly".
+- limit_amount: the new limit (digits only).
+- period: statement period — one of week, month, quarter, year (or a date range as given).
+- cert_kind: certificate type — "account", "no_debt", or "balance".
 
 Examples:
 User: "Transfer 500 dollars to account KZ123"
@@ -75,6 +97,45 @@ Response: {"intent": "statement", "params": {"limit": "5"}, "confidence": 0.96}
 
 User: "Соңғы 10 транзакцияны көрсет"
 Response: {"intent": "statement", "params": {"limit": "10"}, "confidence": 0.96}
+
+User: "Переведи 50000 с тенгового на долларовый счёт"
+Response: {"intent": "transfer_own", "params": {"from_account_kind": "KZT", "to_account_kind": "USD", "amount": "50000"}, "confidence": 0.95}
+
+User: "Теңгелік шоттан долларлық шотқа 10000 аудар"
+Response: {"intent": "transfer_own", "params": {"from_account_kind": "KZT", "to_account_kind": "USD", "amount": "10000"}, "confidence": 0.95}
+
+User: "Переведи 5000 на номер +7 701 234 5678"
+Response: {"intent": "transfer_phone", "params": {"phone": "+77012345678", "amount": "5000"}, "confidence": 0.96}
+
+User: "Открой депозит на 12 месяцев на сумму 100000"
+Response: {"intent": "deposit_open", "params": {"term": "12", "amount": "100000"}, "confidence": 0.95}
+
+User: "12 айға 500000 теңгеге депозит аш"
+Response: {"intent": "deposit_open", "params": {"term": "12", "amount": "500000"}, "confidence": 0.95}
+
+User: "Заблокируй карту 4321"
+Response: {"intent": "card_block", "params": {"card_last4": "4321"}, "confidence": 0.96}
+
+User: "4321 картасын бұғаттан шығар"
+Response: {"intent": "card_unblock", "params": {"card_last4": "4321"}, "confidence": 0.95}
+
+User: "Установи суточный лимит 500000 на карту 4321"
+Response: {"intent": "card_limit", "params": {"card_last4": "4321", "limit_kind": "daily", "limit_amount": "500000"}, "confidence": 0.95}
+
+User: "Set the monthly limit to 1000000 on card 8899"
+Response: {"intent": "card_limit", "params": {"card_last4": "8899", "limit_kind": "monthly", "limit_amount": "1000000"}, "confidence": 0.95}
+
+User: "Пришли выписку за месяц"
+Response: {"intent": "statement_pdf", "params": {"period": "month"}, "confidence": 0.95}
+
+User: "Нужна справка об отсутствии задолженности"
+Response: {"intent": "certificate", "params": {"cert_kind": "no_debt"}, "confidence": 0.95}
+
+User: "Где ближайший банкомат?"
+Response: {"intent": "navigation", "params": {}, "confidence": 0.94}
+
+User: "Соедините меня с менеджером"
+Response: {"intent": "manager", "params": {}, "confidence": 0.96}
 
 User: "Play music"
 Response: {"intent": "unknown", "params": {}, "confidence": 0.95}

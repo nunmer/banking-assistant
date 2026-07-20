@@ -6,7 +6,9 @@ are left alone so "500" is still read as "five hundred".
 """
 
 # Params whose values are identifiers, not quantities.
-IDENTIFIER_PARAMS = frozenset({"to_account", "account_id", "bill_id", "phone"})
+IDENTIFIER_PARAMS = frozenset(
+    {"to_account", "account_id", "bill_id", "phone", "card_last4"}
+)
 
 
 def spell_out(value: str) -> str:

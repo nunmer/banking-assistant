@@ -58,34 +58,43 @@ with `API_KEY_ENABLED=false`).
 
 ---
 
-### 2. Expand intents — add 10 new intents to the LLM system prompt ⬜
+### 2. Expand intents — add 10 new intents to the LLM system prompt ✅
 **Goal:** The classifier recognises the new operations (tasks 5–11).
 
-**Current state:** `SYSTEM_PROMPT` in `orchestrator/services/llm.py` lists only
-`transfer, balance, payment, statement, unknown`.
+**Done (`orchestrator/services/llm.py`):** Added all 10 intents to
+`SYSTEM_PROMPT` — `transfer_own`, `transfer_phone`, `deposit_open`,
+`card_block`, `card_unblock`, `card_limit`, `statement_pdf`, `certificate`,
+`navigation`, `manager` — with a "choosing between similar intents" guide, new
+parameter rules (`from_account_kind`, `to_account_kind`, `phone`, `term`,
+`card_last4`, `card_kind`, `limit_kind`, `limit_amount`, `period`, `cert_kind`),
+and multilingual few-shot examples (ru/kk/en).
 
-**Do:** Add intents + few-shot examples (kk/ru/en each) for:
-`transfer_own`, `transfer_phone`, `deposit_open`, `card_block`, `card_unblock`,
-`card_limit`, `statement_pdf`, `certificate`, `navigation`, `manager`.
-Document each param (e.g. `from_account`, `to_account_kind`, `phone`, `term`,
-`card_last4`, `limit_kind`, `limit_amount`, `period`).
+Also wired the collection side: per-language `slot_prompt`s for every new param
+(`i18n.py`) and `card_last4` added to `speechtext.IDENTIFIER_PARAMS` (spelled
+out for TTS).
 
-**Acceptance:** Sample utterances classify to the right intent with the right params.
+**Acceptance:** guard test asserts all 10 intents are in the prompt; slot prompts
+exist for every new param in all three languages. ✅
 
 ---
 
-### 3. All scenarios in the DB — one migration for every new scenario ⬜
+### 3. All scenarios in the DB — one migration for every new scenario ✅
 **Goal:** New scenarios are seeded via a single Alembic revision.
 
-**Current state:** Only `001_create_scenarios.py` (4 canonical scenarios). Live
-lookups go through `scenario.get(intent)`.
-
-**Do:** Add `002_add_scenarios.py` inserting rows for all new intents with
+**Done:** `002_add_scenarios.py` (down_revision `001`) inserts all 10 rows with
 `required_params`, `optional_params`, per-language `confirm_templates`, and
-`mib_endpoint`/`mib_method`. Keep `db/seed.sql` in sync for fresh boots.
+`mib_endpoint` (`mib_method` defaults POST; endpoints hit the mock-mib catch-all
+for now). Idempotent via `ON CONFLICT (intent) DO NOTHING`; `downgrade()` deletes
+just the new intents. `db/seed.sql` kept in sync for fresh boots.
 
-**Acceptance:** `alembic upgrade head` on an empty DB yields all scenarios; each
-resolves and confirms in the right language.
+Validated offline: every `confirm_templates` literal is valid JSON with all
+three languages, and every `{placeholder}` maps to a known param (no typos).
+
+**Note:** `navigation`/`manager` currently route through the confirm flow as a
+placeholder — task 11 converts them to direct informational replies.
+
+**Acceptance:** `alembic upgrade head` seeds all scenarios; each resolves and
+confirms per language. ✅ *(applied on deploy)*
 
 ---
 

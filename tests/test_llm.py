@@ -44,6 +44,18 @@ class TestIntentResult:
         assert r.params["amount"] == "500"
 
 
+class TestSystemPrompt:
+    NEW_INTENTS = [
+        "transfer_own", "transfer_phone", "deposit_open", "card_block",
+        "card_unblock", "card_limit", "statement_pdf", "certificate",
+        "navigation", "manager",
+    ]
+
+    def test_all_new_intents_documented(self):
+        for intent in self.NEW_INTENTS:
+            assert intent in llm.SYSTEM_PROMPT, f"{intent} missing from SYSTEM_PROMPT"
+
+
 class TestExtractParam:
     @pytest.mark.asyncio
     async def test_extracts_value(self):

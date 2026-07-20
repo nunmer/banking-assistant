@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     TTS_VOICE_RU: str = "jane"   # Russian
     TTS_VOICE_KK: str = "madi"   # Kazakh
     TTS_VOICE_EN: str = "jane"   # no English voice available — Russian fallback
+    # Fallback voice for any language without a specific mapping.
+    TTS_VOICE_DEFAULT: str = "jane"
 
 
 settings = Settings()
@@ -30,4 +32,4 @@ def voice_for_lang(lang: str | None) -> str:
         "kk": settings.TTS_VOICE_KK,
         "ru": settings.TTS_VOICE_RU,
         "en": settings.TTS_VOICE_EN,
-    }.get(code, settings.TTS_VOICE_RU)
+    }.get(code, settings.TTS_VOICE_DEFAULT)

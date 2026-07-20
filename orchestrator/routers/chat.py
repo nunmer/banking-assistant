@@ -7,6 +7,9 @@ Flow per turn:
 
 Both (2) and (3) converge on `_advance`, which validates required params and
 either asks for the next missing one (one at a time) or asks the user to confirm.
+
+Every response carries `lang` — the language it is written in — so the bot can
+pick the matching TTS voice even when the user has just switched languages.
 """
 import logging
 
@@ -49,7 +52,7 @@ async def _advance(
     sc = await scenario.get(intent)
     if sc is None:
         await slotfill.clear(session_id)
-        return ChatResponse(action="reply", message=t(lang, "no_scenario"))
+        return ChatResponse(action="reply", message=t(lang, "no_scenario"), lang=lang)
 
     # Merge session context (e.g. account_id) as a fallback for missing params.
     params = dict(params)
@@ -62,7 +65,9 @@ async def _advance(
         await slotfill.create(
             session_id, intent=intent, params=params, missing=missing, lang=lang
         )
-        return ChatResponse(action="collect", message=slot_prompt(lang, missing[0]))
+        return ChatResponse(
+            action="collect", message=slot_prompt(lang, missing[0]), lang=lang
+        )
 
     # All required params present — set up the confirmation.
     await slotfill.clear(session_id)
@@ -80,7 +85,7 @@ async def _advance(
         speech = None
 
     speech = speech if speech and speech != msg else None
-    return ChatResponse(action="confirm", message=msg, speech=speech)
+    return ChatResponse(action="confirm", message=msg, speech=speech, lang=lang)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -102,10 +107,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 method=pending.get("mib_method", "POST"),
             )
             key = "operation_error" if result.status == "error" else "operation_done"
-            return ChatResponse(action="reply", message=t(lang, key))
+            return ChatResponse(action="reply", message=t(lang, key), lang=lang)
         if decision == "no":
             await confirm.clear_pending(req.session_id)
-            return ChatResponse(action="reply", message=t(lang, "cancelled"))
+            return ChatResponse(action="reply", message=t(lang, "cancelled"), lang=lang)
         # Not a yes/no — fall through and treat it as a brand-new request.
 
     # 2. If a parameter collection is in progress, treat this as the answer.
@@ -114,7 +119,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         # An explicit "no"/"cancel" abandons the collection.
         if affirm.classify_reply(req.text) == "no":
             await slotfill.clear(req.session_id)
-            return ChatResponse(action="reply", message=t(lang, "cancelled"))
+            return ChatResponse(action="reply", message=t(lang, "cancelled"), lang=lang)
 
         asked = sf["missing"][0]
         value = await llm.extract_param(req.text, sf["intent"], asked, lang)
@@ -141,7 +146,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             )
 
         # Nothing usable — re-ask the same slot.
-        return ChatResponse(action="collect", message=slot_prompt(lang, asked))
+        return ChatResponse(action="collect", message=slot_prompt(lang, asked), lang=lang)
 
     # 3. Fresh request — classify intent via LLM.
     intent_result = await llm.classify(req.text, req.session_id)
@@ -160,7 +165,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.intent in ("unknown", "")
         or intent_result.confidence < settings.MIN_CONFIDENCE
     ):
-        return ChatResponse(action="reply", message=t(lang, "unknown_intent"))
+        return ChatResponse(action="reply", message=t(lang, "unknown_intent"), lang=lang)
 
     return await _advance(
         req.session_id, user_session, intent_result.intent, dict(intent_result.params), lang

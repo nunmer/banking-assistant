@@ -17,6 +17,10 @@ class ChatResponse(BaseModel):
     # Optional TTS-optimized variant of `message` (e.g. account numbers spelled
     # out digit-by-digit). The bot displays `message` but synthesizes `speech`.
     speech: str | None = None
+    # Language this response is written in (kk-KZ | ru-RU | en-US). The bot uses
+    # it to pick the matching TTS voice, since the reply language may differ from
+    # the session language when the user switches mid-conversation.
+    lang: str | None = None
 
 
 class IntentResult(BaseModel):

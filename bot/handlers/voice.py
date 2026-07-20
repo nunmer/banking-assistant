@@ -87,10 +87,14 @@ async def handle_voice(message: Message, bot: Bot) -> None:
         return
 
     reply_markup = confirm_keyboard() if data["action"] == "confirm" else None
+    # Speak in the language the orchestrator actually replied in (it auto-detects
+    # and may differ from the session language when the user switched), so the
+    # TTS voice matches the text. Fall back to the session language.
+    reply_lang = data.get("lang") or lang
     await _reply(
         message,
         data["message"],
-        lang=lang,
+        lang=reply_lang,
         speech=data.get("speech"),
         reply_markup=reply_markup,
     )

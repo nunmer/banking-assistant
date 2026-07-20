@@ -168,7 +168,9 @@ async def test_detected_language_switches_response(client):
         resp = await client.post("/chat", json={"session_id": "u-lang", "text": "балансым қанша"})
 
     assert resp.status_code == 200
-    assert resp.json()["message"] == "Шотыңыздың балансын көрсетейін бе?"  # kk reply
+    body = resp.json()
+    assert body["message"] == "Шотыңыздың балансын көрсетейін бе?"  # kk reply
+    assert body["lang"] == "kk-KZ"  # response carries its language for the bot's TTS voice
     # The detected language was persisted to the session.
     assert any(
         c.kwargs.get("updates") == {"lang": "kk-KZ"} for c in touch.await_args_list

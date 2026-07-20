@@ -138,6 +138,43 @@ async def test_chat_session_account_id_fills_balance(client):
     assert resp.json()["action"] == "confirm"
 
 
+@pytest.mark.asyncio
+async def test_detected_language_switches_response(client):
+    """Session is ru-RU, but a Kazakh message is detected → reply + persist as kk."""
+    kk_scenario = MagicMock(
+        intent="balance",
+        display_name="Account Balance",
+        required_params=[],
+        confirm_template="Показать баланс вашего счёта?",
+        confirm_templates={"kk-KZ": "Шотыңыздың балансын көрсетейін бе?"},
+        mib_endpoint="/balance",
+        mib_method="POST",
+    )
+    touch = AsyncMock(return_value={"lang": "ru-RU"})
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="balance", params={}, confidence=0.99, lang="kk-KZ"
+                )
+            ),
+        ),
+        patch("orchestrator.services.scenario.get", new=AsyncMock(return_value=kk_scenario)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=touch),
+    ):
+        resp = await client.post("/chat", json={"session_id": "u-lang", "text": "балансым қанша"})
+
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "Шотыңыздың балансын көрсетейін бе?"  # kk reply
+    # The detected language was persisted to the session.
+    assert any(
+        c.kwargs.get("updates") == {"lang": "kk-KZ"} for c in touch.await_args_list
+    )
+
+
 # ── Multi-turn slot-filling ──────────────────────────────────────────────────
 
 

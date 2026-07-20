@@ -32,13 +32,17 @@ def resolve_lang(code: str | None, strict: bool = False) -> str | None:
 _MESSAGES: dict[str, dict[str, str]] = {
     "ru-RU": {
         "start": (
-            "Привет! Я банковский ассистент Forte.\n\n"
-            "Отправьте текст или голосовое сообщение. Например:\n"
-            "• Переведи 500 долларов на счёт KZ123\n"
-            "• Какой мой баланс?\n"
-            "• Оплати счёт 8842 на сумму 12000\n"
-            "• Покажи последние 5 транзакций\n\n"
-            "Сменить язык: /lang kk | ru | en"
+            "Привет! Я банковский ассистент Forte 👋\n\n"
+            "Пишите или отправляйте голосовые — на русском или казахском, как удобно. "
+            "Язык распознаю сам.\n\n"
+            "Я умею:\n"
+            "💸 Переводы — на счёт, между своими счетами, по номеру телефона\n"
+            "💳 Карты — заблокировать, разблокировать, изменить лимит\n"
+            "🏦 Открыть депозит\n"
+            "📄 Баланс, выписка, справка\n"
+            "🧾 Оплата счетов\n"
+            "📍 Навигация и связь с менеджером\n\n"
+            "Например: «Переведи 5000 тенге на +7 701 234 5678»"
         ),
         "lang_set": "Язык изменён на русский. 🇷🇺",
         "lang_unknown": "Неизвестный язык. Доступные: kk (қазақша), ru (русский), en (English).",
@@ -50,13 +54,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
     },
     "kk-KZ": {
         "start": (
-            "Сәлем! Мен Forte банк ассистентімін.\n\n"
-            "Мәтін немесе дауыстық хабарлама жібере аласыз. Мысалы:\n"
-            "• KZ123 шотына 500 доллар аудар\n"
-            "• Менің балансым қанша?\n"
-            "• 8842 шотты 12000 сомасына төле\n"
-            "• Соңғы 5 транзакцияны көрсет\n\n"
-            "Тілді өзгерту: /lang kk | ru | en"
+            "Сәлем! Мен Forte банк ассистентімін 👋\n\n"
+            "Мәтін де, дауыстық та жаза аласыз — орысша не қазақша, өзіңізге ыңғайлы тілде. "
+            "Тілді өзім тани аламын.\n\n"
+            "Мен мынаны істей аламын:\n"
+            "💸 Аударымдар — шотқа, өз шоттарыңыз арасында, телефон нөмірі бойынша\n"
+            "💳 Карталар — бұғаттау, бұғаттан шығару, лимитті өзгерту\n"
+            "🏦 Депозит ашу\n"
+            "📄 Баланс, үзінді, анықтама\n"
+            "🧾 Шот төлеу\n"
+            "📍 Навигация және менеджермен байланыс\n\n"
+            "Мысалы: «+7 701 234 5678 нөміріне 5000 теңге аудар»"
         ),
         "lang_set": "Тіл қазақ тіліне өзгертілді. 🇰🇿",
         "lang_unknown": "Белгісіз тіл. Қолжетімді: kk (қазақша), ru (русский), en (English).",
@@ -68,13 +76,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
     },
     "en-US": {
         "start": (
-            "Hi! I'm the Forte banking assistant.\n\n"
-            "Send me a text or voice message. For example:\n"
-            "• Transfer 500 USD to account KZ123\n"
-            "• What's my balance?\n"
-            "• Pay bill 8842 for 12000\n"
-            "• Show my last 5 transactions\n\n"
-            "Change language: /lang kk | ru | en"
+            "Hi! I'm the Forte banking assistant 👋\n\n"
+            "Type or send a voice message — in Russian or Kazakh, whichever you like. "
+            "I'll detect the language myself.\n\n"
+            "I can help with:\n"
+            "💸 Transfers — to an account, between your own accounts, by phone number\n"
+            "💳 Cards — block, unblock, change limit\n"
+            "🏦 Open a deposit\n"
+            "📄 Balance, statement, certificate\n"
+            "🧾 Pay bills\n"
+            "📍 Navigation and reaching a manager\n\n"
+            "For example: \"Send 5000 tenge to +7 701 234 5678\""
         ),
         "lang_set": "Language set to English. 🇬🇧",
         "lang_unknown": "Unknown language. Available: kk (қазақша), ru (русский), en (English).",

@@ -56,6 +56,39 @@ class TestSystemPrompt:
             assert intent in llm.SYSTEM_PROMPT, f"{intent} missing from SYSTEM_PROMPT"
 
 
+class TestClassifyLang:
+    @pytest.mark.asyncio
+    async def test_parses_detected_lang(self):
+        raw = '{"intent":"balance","params":{},"confidence":0.9,"lang":"kk-KZ"}'
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("балансым қанша", "s1")
+        assert r.intent == "balance"
+        assert r.lang == "kk-KZ"
+
+    @pytest.mark.asyncio
+    async def test_unsupported_lang_becomes_none(self):
+        raw = '{"intent":"balance","params":{},"lang":"fr-FR"}'
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("solde", "s1")
+        assert r.lang is None
+
+    @pytest.mark.asyncio
+    async def test_missing_lang_is_none(self):
+        raw = '{"intent":"balance","params":{}}'
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("balance", "s1")
+        assert r.lang is None
+
+
 class TestExtractParam:
     @pytest.mark.asyncio
     async def test_extracts_value(self):

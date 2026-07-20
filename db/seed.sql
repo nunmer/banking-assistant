@@ -1,5 +1,6 @@
--- Scenario catalogue: schema + seed data.
--- Mounted into postgres via docker-entrypoint-initdb.d on first boot.
+-- Scenario catalogue: schema + seed data (snapshot of alembic 001–003).
+-- NOTE: not mounted at runtime — Alembic owns schema/seed (the orchestrator runs
+-- `alembic upgrade head` on startup). Kept in sync as a readable reference.
 
 CREATE TABLE IF NOT EXISTS scenarios (
     id               SERIAL PRIMARY KEY,
@@ -8,8 +9,9 @@ CREATE TABLE IF NOT EXISTS scenarios (
     description      TEXT,
     required_params  JSONB NOT NULL DEFAULT '[]',
     optional_params  JSONB NOT NULL DEFAULT '[]',
-    -- Default confirm message (Russian).  Used as fallback when a lang-specific
-    -- entry is missing from confirm_templates.
+    -- Default confirm message (Russian). Fallback when a lang-specific entry is
+    -- missing from confirm_templates. Currency/enum placeholders are localised
+    -- to words at render time (KZT → тенге).
     confirm_template TEXT NOT NULL,
     -- Per-language confirm messages keyed by BCP-47 tag (kk-KZ, ru-RU, en-US).
     confirm_templates JSONB NOT NULL DEFAULT '{}',
@@ -23,113 +25,74 @@ INSERT INTO scenarios
     (intent, display_name, required_params, optional_params,
      confirm_template, confirm_templates, mib_endpoint)
 VALUES
-    (
-        'transfer',
-        'Money Transfer',
-        '["amount", "currency", "to_account"]',
-        '[]',
-        'Перевести {amount} {currency} на счёт {to_account} — подтвердить?',
-        '{
-            "ru-RU": "Перевести {amount} {currency} на счёт {to_account} — подтвердить?",
-            "kk-KZ": "{to_account} шотына {amount} {currency} аудару — растайсыз ба?",
-            "en-US": "Transfer {amount} {currency} to account {to_account} — confirm?"
-        }',
-        '/transfer'
-    ),
-    (
-        'balance',
-        'Account Balance',
-        '[]',
-        '[]',
-        'Узнать баланс счёта — подтвердить?',
-        '{
-            "ru-RU": "Узнать баланс счёта — подтвердить?",
-            "kk-KZ": "Шот балансын білу — растайсыз ба?",
-            "en-US": "Retrieve your account balance — confirm?"
-        }',
-        '/balance'
-    ),
-    (
-        'payment',
-        'Bill Payment',
-        '["bill_id", "amount"]',
-        '[]',
-        'Оплатить счёт {bill_id} на сумму {amount} — подтвердить?',
-        '{
-            "ru-RU": "Оплатить счёт {bill_id} на сумму {amount} — подтвердить?",
-            "kk-KZ": "{bill_id} шотын {amount} сомасына төлеу — растайсыз ба?",
-            "en-US": "Pay bill {bill_id} for {amount} — confirm?"
-        }',
-        '/payment'
-    ),
-    (
-        'statement',
-        'Transaction Statement',
-        '[]',
-        '["limit"]',
-        'Показать последние транзакции — подтвердить?',
-        '{
-            "ru-RU": "Показать последние транзакции — подтвердить?",
-            "kk-KZ": "Соңғы транзакцияларды көрсету — растайсыз ба?",
-            "en-US": "Show your last transactions — confirm?"
-        }',
-        '/statement'
-    )
-ON CONFLICT (intent) DO NOTHING;
-
--- Expanded intent set (kept in sync with alembic 002_add_scenarios).
-INSERT INTO scenarios
-    (intent, display_name, required_params, optional_params,
-     confirm_template, confirm_templates, mib_endpoint)
-VALUES
+    ('transfer', 'Money Transfer',
+     '["amount","currency","to_account"]', '[]',
+     'Перевожу {amount} {currency} на счёт {to_account}. Подтверждаете?',
+     '{"ru-RU":"Перевожу {amount} {currency} на счёт {to_account}. Подтверждаете?","kk-KZ":"{to_account} шотына {amount} {currency} аударамын. Растайсыз ба?","en-US":"I''ll transfer {amount} {currency} to account {to_account}. Shall I go ahead?"}',
+     '/transfer'),
+    ('balance', 'Account Balance',
+     '[]', '[]',
+     'Показать баланс вашего счёта?',
+     '{"ru-RU":"Показать баланс вашего счёта?","kk-KZ":"Шотыңыздың балансын көрсетейін бе?","en-US":"Show your account balance?"}',
+     '/balance'),
+    ('payment', 'Bill Payment',
+     '["bill_id","amount"]', '[]',
+     'Оплачиваю счёт {bill_id} на сумму {amount}. Подтверждаете?',
+     '{"ru-RU":"Оплачиваю счёт {bill_id} на сумму {amount}. Подтверждаете?","kk-KZ":"{bill_id} шотын {amount} сомасына төлеймін. Растайсыз ба?","en-US":"I''ll pay bill {bill_id} for {amount}. Shall I go ahead?"}',
+     '/payment'),
+    ('statement', 'Transaction Statement',
+     '[]', '["limit"]',
+     'Показать последние операции по счёту?',
+     '{"ru-RU":"Показать последние операции по счёту?","kk-KZ":"Шот бойынша соңғы операцияларды көрсетейін бе?","en-US":"Show your recent account activity?"}',
+     '/statement'),
     ('transfer_own', 'Transfer Between Own Accounts',
      '["from_account_kind","to_account_kind","amount"]', '[]',
-     'Перевести {amount} со счёта {from_account_kind} на счёт {to_account_kind} — подтвердить?',
-     '{"ru-RU":"Перевести {amount} со счёта {from_account_kind} на счёт {to_account_kind} — подтвердить?","kk-KZ":"{from_account_kind} шотынан {to_account_kind} шотына {amount} аудару — растайсыз ба?","en-US":"Transfer {amount} from your {from_account_kind} account to your {to_account_kind} account — confirm?"}',
+     'Перевожу {amount} между вашими счетами: {from_account_kind} → {to_account_kind}. Подтверждаете?',
+     '{"ru-RU":"Перевожу {amount} между вашими счетами: {from_account_kind} → {to_account_kind}. Подтверждаете?","kk-KZ":"Шоттарыңыз арасында {amount} аударамын: {from_account_kind} → {to_account_kind}. Растайсыз ба?","en-US":"I''ll move {amount} between your accounts: {from_account_kind} → {to_account_kind}. Shall I go ahead?"}',
      '/transfer/own'),
     ('transfer_phone', 'Transfer by Phone',
      '["phone","amount"]', '[]',
-     'Перевести {amount} на номер {phone} — подтвердить?',
-     '{"ru-RU":"Перевести {amount} на номер {phone} — подтвердить?","kk-KZ":"{phone} нөміріне {amount} аудару — растайсыз ба?","en-US":"Transfer {amount} to {phone} — confirm?"}',
+     'Перевожу {amount} на номер {phone}. Подтверждаете?',
+     '{"ru-RU":"Перевожу {amount} на номер {phone}. Подтверждаете?","kk-KZ":"{phone} нөміріне {amount} аударамын. Растайсыз ба?","en-US":"I''ll transfer {amount} to {phone}. Shall I go ahead?"}',
      '/transfer/phone'),
     ('deposit_open', 'Open Deposit',
      '["term","amount"]', '[]',
-     'Открыть депозит на {term} мес. на сумму {amount} — подтвердить?',
-     '{"ru-RU":"Открыть депозит на {term} мес. на сумму {amount} — подтвердить?","kk-KZ":"{term} айға {amount} сомасына депозит ашу — растайсыз ба?","en-US":"Open a deposit for {term} months of {amount} — confirm?"}',
+     'Открываю депозит на {term} мес. на сумму {amount}. Подтверждаете?',
+     '{"ru-RU":"Открываю депозит на {term} мес. на сумму {amount}. Подтверждаете?","kk-KZ":"{term} айға {amount} сомасына депозит ашамын. Растайсыз ба?","en-US":"I''ll open a {term}-month deposit for {amount}. Shall I go ahead?"}',
      '/deposit/open'),
     ('card_block', 'Block Card',
      '["card_last4"]', '["card_kind"]',
-     'Заблокировать карту •• {card_last4} — подтвердить?',
-     '{"ru-RU":"Заблокировать карту •• {card_last4} — подтвердить?","kk-KZ":"•• {card_last4} картасын бұғаттау — растайсыз ба?","en-US":"Block card •• {card_last4} — confirm?"}',
+     'Блокирую карту •• {card_last4}. Подтверждаете?',
+     '{"ru-RU":"Блокирую карту •• {card_last4}. Подтверждаете?","kk-KZ":"•• {card_last4} картасын бұғаттаймын. Растайсыз ба?","en-US":"I''ll block card •• {card_last4}. Shall I go ahead?"}',
      '/card/block'),
     ('card_unblock', 'Unblock Card',
      '["card_last4"]', '["card_kind"]',
-     'Разблокировать карту •• {card_last4} — подтвердить?',
-     '{"ru-RU":"Разблокировать карту •• {card_last4} — подтвердить?","kk-KZ":"•• {card_last4} картасының бұғатын алу — растайсыз ба?","en-US":"Unblock card •• {card_last4} — confirm?"}',
+     'Разблокирую карту •• {card_last4}. Подтверждаете?',
+     '{"ru-RU":"Разблокирую карту •• {card_last4}. Подтверждаете?","kk-KZ":"•• {card_last4} картасының бұғатын аламын. Растайсыз ба?","en-US":"I''ll unblock card •• {card_last4}. Shall I go ahead?"}',
      '/card/unblock'),
     ('card_limit', 'Change Card Limit',
      '["card_last4","limit_kind","limit_amount"]', '[]',
-     'Изменить {limit_kind} лимит карты •• {card_last4} на {limit_amount} — подтвердить?',
-     '{"ru-RU":"Изменить {limit_kind} лимит карты •• {card_last4} на {limit_amount} — подтвердить?","kk-KZ":"•• {card_last4} картасының {limit_kind} лимитін {limit_amount} етіп өзгерту — растайсыз ба?","en-US":"Change the {limit_kind} limit on card •• {card_last4} to {limit_amount} — confirm?"}',
+     'Меняю {limit_kind} лимит карты •• {card_last4} на {limit_amount}. Подтверждаете?',
+     '{"ru-RU":"Меняю {limit_kind} лимит карты •• {card_last4} на {limit_amount}. Подтверждаете?","kk-KZ":"•• {card_last4} картасының {limit_kind} лимитін {limit_amount} етіп өзгертемін. Растайсыз ба?","en-US":"I''ll change the {limit_kind} limit on card •• {card_last4} to {limit_amount}. Shall I go ahead?"}',
      '/card/limit'),
     ('statement_pdf', 'Account Statement (PDF)',
      '["period"]', '["account_id"]',
-     'Сформировать выписку за {period} — подтвердить?',
-     '{"ru-RU":"Сформировать выписку за {period} — подтвердить?","kk-KZ":"{period} кезеңі бойынша үзінді дайындау — растайсыз ба?","en-US":"Generate a statement for {period} — confirm?"}',
+     'Готовлю выписку за {period}. Подтверждаете?',
+     '{"ru-RU":"Готовлю выписку за {period}. Подтверждаете?","kk-KZ":"{period} бойынша үзінді дайындаймын. Растайсыз ба?","en-US":"I''ll prepare a statement for {period}. Shall I go ahead?"}',
      '/statement/pdf'),
     ('certificate', 'Account Certificate',
      '["cert_kind"]', '[]',
-     'Подготовить справку ({cert_kind}) — подтвердить?',
-     '{"ru-RU":"Подготовить справку ({cert_kind}) — подтвердить?","kk-KZ":"Анықтама дайындау ({cert_kind}) — растайсыз ба?","en-US":"Prepare a certificate ({cert_kind}) — confirm?"}',
+     'Готовлю справку ({cert_kind}). Подтверждаете?',
+     '{"ru-RU":"Готовлю справку ({cert_kind}). Подтверждаете?","kk-KZ":"Анықтама дайындаймын ({cert_kind}). Растайсыз ба?","en-US":"I''ll prepare a certificate ({cert_kind}). Shall I go ahead?"}',
      '/certificate'),
     ('navigation', 'Navigation',
      '[]', '[]',
-     'Показать навигацию по приложению — подтвердить?',
-     '{"ru-RU":"Показать навигацию по приложению — подтвердить?","kk-KZ":"Қосымша бойынша навигацияны көрсету — растайсыз ба?","en-US":"Show app navigation — confirm?"}',
+     'Подсказать, как это сделать в приложении?',
+     '{"ru-RU":"Подсказать, как это сделать в приложении?","kk-KZ":"Мұны қосымшада қалай істеу керегін көрсетейін бе?","en-US":"Want me to show you how to do this in the app?"}',
      '/navigation'),
     ('manager', 'Contact Manager',
      '[]', '[]',
-     'Связать вас с менеджером — подтвердить?',
-     '{"ru-RU":"Связать вас с менеджером — подтвердить?","kk-KZ":"Сізді менеджермен байланыстыру — растайсыз ба?","en-US":"Connect you with a manager — confirm?"}',
+     'Соединить вас с менеджером?',
+     '{"ru-RU":"Соединить вас с менеджером?","kk-KZ":"Сізді менеджермен байланыстырайын ба?","en-US":"Shall I connect you with a manager?"}',
      '/manager')
 ON CONFLICT (intent) DO NOTHING;

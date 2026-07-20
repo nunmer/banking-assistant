@@ -21,12 +21,14 @@ logger = logging.getLogger("bot.voice")
 router = Router()
 
 
-async def _transcribe(audio: bytes, lang: str) -> str:
+async def _transcribe(audio: bytes) -> str:
+    # Send the multi-language set so the speech service auto-detects which
+    # language was spoken; the orchestrator then replies in that language.
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             f"{settings.SPEECH_SERVICE_URL}/stt/recognize",
             files={"file": ("audio.ogg", audio, "application/octet-stream")},
-            data={"lang": lang},
+            data={"lang": settings.STT_LANGS},
             headers=speech_headers(),
         )
         resp.raise_for_status()
@@ -65,7 +67,7 @@ async def handle_voice(message: Message, bot: Bot) -> None:
     audio = buf.read()
 
     try:
-        transcript = await _transcribe(audio, lang)
+        transcript = await _transcribe(audio)
     except (httpx.HTTPError, KeyError) as e:
         logger.error("transcription failed: %s", e)
         await message.answer(t(lang, "error_audio"))

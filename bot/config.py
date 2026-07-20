@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # API key for the speech-service (X-API-Key header). Empty = no auth header.
     SPEECH_API_KEY: str = ""
     SPEECH_DEFAULT_LANG: str = "ru-RU"
+    # Languages the speech service should auto-detect between for STT (comma-
+    # separated WHITELIST). Lets a user switch language mid-conversation without
+    # changing a setting. The orchestrator then replies in the detected language.
+    STT_LANGS: str = "ru-RU,kk-KZ"
     # When True, voice-message replies are sent as voice notes via TTS.
     TTS_VOICE_REPLIES: bool = False
     # Per-language TTS voice (speech-service / Yandex voice names). The voice

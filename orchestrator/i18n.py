@@ -10,33 +10,57 @@ DEFAULT_LANG = "ru-RU"
 _MESSAGES: dict[str, dict[str, str]] = {
     "ru-RU": {
         "unknown_intent": (
-            "Извините, я не понял вашу просьбу. "
-            "Попробуйте: перевод, баланс, оплата счёта или выписка."
+            "Не совсем понял 🤔 Вот с чем я могу помочь:\n\n"
+            "💸 Переводы — на счёт, между своими счетами, по номеру телефона\n"
+            "💳 Карты — заблокировать, разблокировать, изменить лимит\n"
+            "🏦 Депозит — открыть\n"
+            "📄 Счёт — баланс, выписка, справка\n"
+            "🧾 Оплата счетов\n"
+            "📍 Навигация и связь с менеджером\n\n"
+            "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
-        "no_scenario": "Извините, я не могу помочь с этим.",
+        "no_scenario": "Извините, с этим пока не могу помочь.",
         "missing_params": "Пожалуйста, укажите: {params}",
-        "no_pending": "Ожидающего действия не найдено. Возможно, истёк срок — попробуйте снова.",
-        "cancelled": "Отменено.",
+        "no_pending": "Не нашёл активного запроса. Возможно, истёк срок — попробуйте ещё раз.",
+        "cancelled": "Хорошо, отменил. 👌",
+        "operation_done": "Готово! Операция выполнена. ✅",
+        "operation_error": "Не удалось выполнить операцию. Попробуйте, пожалуйста, чуть позже.",
     },
     "kk-KZ": {
         "unknown_intent": (
-            "Кешіріңіз, сізді түсінбедім. "
-            "Қолжетімді: аудару, баланс, шот төлеу немесе үзінді."
+            "Толық түсінбедім 🤔 Мен мынаған көмектесе аламын:\n\n"
+            "💸 Аударымдар — шотқа, өз шоттарыңыз арасында, телефон нөмірі бойынша\n"
+            "💳 Карталар — бұғаттау, бұғаттан шығару, лимитті өзгерту\n"
+            "🏦 Депозит — ашу\n"
+            "📄 Шот — баланс, үзінді, анықтама\n"
+            "🧾 Шот төлеу\n"
+            "📍 Навигация және менеджермен байланыс\n\n"
+            "Не керегін жазыңыз немесе айтыңыз — мысалы «+7 701 … нөміріне 5000 теңге аудар»."
         ),
-        "no_scenario": "Кешіріңіз, мен мұнда көмектесе алмаймын.",
+        "no_scenario": "Кешіріңіз, бұған әзірге көмектесе алмаймын.",
         "missing_params": "Мына деректерді көрсетіңіз: {params}",
-        "no_pending": "Күтуші әрекет табылмады. Мерзімі өткен болуы мүмкін — қайталап сұраңыз.",
-        "cancelled": "Бас тартылды.",
+        "no_pending": "Белсенді сұрау табылмады. Мерзімі өткен болуы мүмкін — қайталап көріңіз.",
+        "cancelled": "Жарайды, бас тарттым. 👌",
+        "operation_done": "Дайын! Операция орындалды. ✅",
+        "operation_error": "Операцияны орындау мүмкін болмады. Сәл кейінірек қайталап көріңіз.",
     },
     "en-US": {
         "unknown_intent": (
-            "Sorry, I couldn't understand that. "
-            "Try: transfer, balance, pay a bill, or a statement."
+            "I didn't quite catch that 🤔 Here's what I can help with:\n\n"
+            "💸 Transfers — to an account, between your own accounts, by phone number\n"
+            "💳 Cards — block, unblock, change limit\n"
+            "🏦 Deposit — open one\n"
+            "📄 Account — balance, statement, certificate\n"
+            "🧾 Pay bills\n"
+            "📍 Navigation and reaching a manager\n\n"
+            "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
         ),
-        "no_scenario": "Sorry, I can't help with that.",
+        "no_scenario": "Sorry, I can't help with that yet.",
         "missing_params": "Please provide: {params}",
-        "no_pending": "No pending action found. It may have expired — please ask again.",
-        "cancelled": "Cancelled.",
+        "no_pending": "No active request found. It may have expired — please try again.",
+        "cancelled": "Okay, cancelled. 👌",
+        "operation_done": "Done! Your request has been completed. ✅",
+        "operation_error": "I couldn't complete that operation. Please try again a little later.",
     },
 }
 

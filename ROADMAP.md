@@ -206,6 +206,28 @@ Manager card = name + phone (phone spelled out for TTS).
 
 ---
 
+## Conversational quality pass ✅ *(cross-cutting)*
+Landed on top of tasks 1–4 to make the bot feel human and language-agnostic:
+
+- **Automatic language detection.** The LLM returns a `lang` per message
+  (`IntentResult.lang`); the orchestrator replies in the detected language and
+  persists it — so a user can start in Russian, switch to Kazakh, or mix the two
+  with no manual `/lang`. Voice: the bot sends a multi-language STT WHITELIST
+  (`STT_LANGS="ru-RU,kk-KZ"`) so SpeechKit auto-detects the spoken language
+  (`speechkit` `stt._submit` now accepts a comma-separated set).
+- **Currency (and enums) spoken as words.** `speechtext.for_display` /
+  `for_speech` localise `currency`, account kinds, `limit_kind`, `period`,
+  `cert_kind` — so `KZT` is shown and **spoken as "тенге"**, not the letters.
+- **Warmer wording.** Migration `003` rewrites every confirm template
+  ("Перевожу 100 тенге на счёт …. Подтверждаете?"); post-confirm replies are
+  localised ("Готово! ✅"); `unknown_intent` and `/start` now show a friendly,
+  grouped capability list.
+
+**Note:** multi-language STT auto-detection needs a real-audio check (can't be
+verified offline).
+
+---
+
 ## Suggested sequencing
 
 | Day | Focus |

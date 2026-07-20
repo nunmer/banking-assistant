@@ -24,15 +24,15 @@ _TRANSFER_SCENARIO = MagicMock(
 class TestI18nHelper:
     def test_russian_unknown_intent(self):
         msg = t("ru-RU", "unknown_intent")
-        assert "не понял" in msg
+        assert "помочь" in msg and "Переводы" in msg  # friendly capability list
 
     def test_kazakh_unknown_intent(self):
         msg = t("kk-KZ", "unknown_intent")
-        assert "түсінбедім" in msg
+        assert "Аударымдар" in msg  # capability list
 
     def test_english_unknown_intent(self):
         msg = t("en-US", "unknown_intent")
-        assert "couldn't understand" in msg
+        assert "help with" in msg and "Transfers" in msg
 
     def test_missing_params_interpolation(self):
         msg = t("en-US", "missing_params", params="currency, to_account")
@@ -44,9 +44,9 @@ class TestI18nHelper:
         assert msg == t("ru-RU", "cancelled")  # falls back to DEFAULT_LANG (ru-RU)
 
     def test_cancelled_messages(self):
-        assert "Отменено" in t("ru-RU", "cancelled")
-        assert "Бас тартылды" in t("kk-KZ", "cancelled")
-        assert "Cancelled" in t("en-US", "cancelled")
+        assert "отменил" in t("ru-RU", "cancelled")
+        assert "тарт" in t("kk-KZ", "cancelled")
+        assert "cancelled" in t("en-US", "cancelled").lower()
 
 
 class TestSlotPrompt:
@@ -134,4 +134,4 @@ async def test_chat_russian_returns_russian_error(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["action"] == "reply"
-    assert "не понял" in body["message"]
+    assert "помочь" in body["message"]  # friendly capability list

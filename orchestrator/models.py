@@ -23,6 +23,9 @@ class IntentResult(BaseModel):
     intent: str
     params: dict[str, str] = Field(default_factory=dict)
     confidence: float = 1.0
+    # Language the user wrote in (kk-KZ | ru-RU | en-US), detected by the LLM so
+    # the assistant can reply in kind even when the user switches mid-conversation.
+    lang: str | None = None
 
 
 class ConfirmReplyRequest(BaseModel):

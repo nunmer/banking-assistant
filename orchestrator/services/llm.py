@@ -16,14 +16,22 @@ from orchestrator.models import IntentResult
 
 logger = logging.getLogger("orchestrator.llm")
 
+SUPPORTED_LANGS = frozenset({"kk-KZ", "ru-RU", "en-US"})
+
 # Works for Kazakh (kk), Russian (ru), and English (en) input.
 SYSTEM_PROMPT = """
 You are a multilingual banking assistant for ForteBank Kazakhstan.
 Extract the user's intent and parameters from their message.
 
-The user may write in Kazakh (kk), Russian (ru), or English (en).
+The user may write in Kazakh (kk), Russian (ru), or English (en), and may mix
+Kazakh and Russian in one message.
 Always respond ONLY with valid JSON regardless of the input language.
 No explanation. No markdown.
+
+Also detect the language the user is writing in and return it as "lang"
+(one of kk-KZ, ru-RU, en-US) — this is the language the assistant should reply
+in. For a Kazakh-Russian mix, choose the dominant language (the one the main
+request is in); if truly balanced, use kk-KZ.
 
 Schema:
 {
@@ -31,7 +39,8 @@ Schema:
   "params": {
     "<param_name>": "<value>"
   },
-  "confidence": 0.0-1.0
+  "confidence": 0.0-1.0,
+  "lang": "kk-KZ" | "ru-RU" | "en-US"
 }
 
 Available intents: transfer, transfer_own, transfer_phone, balance, payment,
@@ -69,22 +78,25 @@ Parameter rules:
 
 Examples:
 User: "Transfer 500 dollars to account KZ123"
-Response: {"intent": "transfer", "params": {"amount": "500", "currency": "USD", "to_account": "KZ123"}, "confidence": 0.97}
+Response: {"intent": "transfer", "params": {"amount": "500", "currency": "USD", "to_account": "KZ123"}, "confidence": 0.97, "lang": "en-US"}
 
 User: "KZ456 шотына 12000 теңге аудар"
-Response: {"intent": "transfer", "params": {"amount": "12000", "currency": "KZT", "to_account": "KZ456"}, "confidence": 0.96}
+Response: {"intent": "transfer", "params": {"amount": "12000", "currency": "KZT", "to_account": "KZ456"}, "confidence": 0.96, "lang": "kk-KZ"}
 
 User: "Переведи 300 евро на KZ789"
-Response: {"intent": "transfer", "params": {"amount": "300", "currency": "EUR", "to_account": "KZ789"}, "confidence": 0.97}
+Response: {"intent": "transfer", "params": {"amount": "300", "currency": "EUR", "to_account": "KZ789"}, "confidence": 0.97, "lang": "ru-RU"}
 
 User: "What is my balance"
-Response: {"intent": "balance", "params": {}, "confidence": 0.99}
+Response: {"intent": "balance", "params": {}, "confidence": 0.99, "lang": "en-US"}
 
 User: "Менің балансым қанша?"
-Response: {"intent": "balance", "params": {}, "confidence": 0.99}
+Response: {"intent": "balance", "params": {}, "confidence": 0.99, "lang": "kk-KZ"}
 
 User: "Какой мой баланс?"
-Response: {"intent": "balance", "params": {}, "confidence": 0.99}
+Response: {"intent": "balance", "params": {}, "confidence": 0.99, "lang": "ru-RU"}
+
+User: "Балансымды покажи, пожалуйста"
+Response: {"intent": "balance", "params": {}, "confidence": 0.95, "lang": "ru-RU"}
 
 User: "Pay utility bill 8842 for 12000"
 Response: {"intent": "payment", "params": {"bill_id": "8842", "amount": "12000"}, "confidence": 0.95}
@@ -233,8 +245,14 @@ async def classify(text: str, session_id: str) -> IntentResult:
     # Coerce param values to strings — the schema promises dict[str, str].
     params = {str(k): str(v) for k, v in (data.get("params") or {}).items()}
 
+    # Only accept a supported language tag; otherwise leave it unset and the
+    # caller falls back to the session language.
+    lang = data.get("lang")
+    lang = lang if lang in SUPPORTED_LANGS else None
+
     return IntentResult(
         intent=str(data.get("intent", "unknown")),
         params=params,
         confidence=float(data.get("confidence", 1.0)),
+        lang=lang,
     )

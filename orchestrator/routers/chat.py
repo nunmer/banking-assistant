@@ -31,6 +31,14 @@ logger = logging.getLogger("orchestrator.chat")
 router = APIRouter()
 
 
+async def _detect_lang(session_id: str, current: str, detected: str | None) -> str:
+    """Adopt the LLM-detected language for this reply and persist it if changed."""
+    if detected and detected != current:
+        await session.touch(session_id, updates={"lang": detected})
+        return detected
+    return current
+
+
 async def _advance(
     session_id: str, user_session: dict, intent: str, params: dict, lang: str
 ) -> ChatResponse:
@@ -63,9 +71,10 @@ async def _advance(
     templates: dict = sc.confirm_templates or {}
     template = templates.get(lang) or sc.confirm_template
     try:
-        msg = template.format(**params)
-        # Spoken variant: spell out account/bill numbers digit-by-digit.
-        speech = template.format(**speechtext.speech_params(params))
+        # Display: currency/enum values as natural words ("KZT" → "тенге").
+        msg = template.format(**speechtext.for_display(params, lang))
+        # Speech: same words, plus account/card numbers spelled out digit-by-digit.
+        speech = template.format(**speechtext.for_speech(params, lang))
     except (KeyError, IndexError):
         msg = f"{sc.display_name}?"
         speech = None
@@ -92,7 +101,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 params=pending["params"],
                 method=pending.get("mib_method", "POST"),
             )
-            return ChatResponse(action="reply", message=result.message)
+            key = "operation_error" if result.status == "error" else "operation_done"
+            return ChatResponse(action="reply", message=t(lang, key))
         if decision == "no":
             await confirm.clear_pending(req.session_id)
             return ChatResponse(action="reply", message=t(lang, "cancelled"))
@@ -119,6 +129,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             intent_result.intent not in ("unknown", "")
             and intent_result.confidence >= settings.MIN_CONFIDENCE
         ):
+            lang = await _detect_lang(req.session_id, lang, intent_result.lang)
             if intent_result.intent == sf["intent"]:
                 # Restatement: merge any newly given params and keep collecting.
                 params = {**sf["params"], **intent_result.params}
@@ -134,6 +145,9 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     # 3. Fresh request — classify intent via LLM.
     intent_result = await llm.classify(req.text, req.session_id)
+    # Reply in the language the user actually used (auto-detected), even if they
+    # switched from a previous message, and remember it for next time.
+    lang = await _detect_lang(req.session_id, lang, intent_result.lang)
     logger.info(
         "session=%s lang=%s intent=%s confidence=%.2f",
         req.session_id,

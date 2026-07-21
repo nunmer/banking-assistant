@@ -26,6 +26,16 @@ _BALANCE_SCENARIO = MagicMock(
     mib_method="POST",
 )
 
+_TRANSFER_PHONE_SCENARIO = MagicMock(
+    intent="transfer_phone",
+    display_name="Transfer by Phone",
+    required_params=["phone", "amount"],
+    confirm_template="Transfer {amount} to number {phone} — confirm?",
+    confirm_templates={},
+    mib_endpoint="/transfer/phone",
+    mib_method="POST",
+)
+
 
 @pytest.mark.asyncio
 async def test_chat_returns_confirm_for_transfer(client):
@@ -175,6 +185,86 @@ async def test_detected_language_switches_response(client):
     assert any(
         c.kwargs.get("updates") == {"lang": "kk-KZ"} for c in touch.await_args_list
     )
+
+
+# ── Parameter validation ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_name_in_phone_is_rejected_and_reasked(client):
+    """A name mistakenly placed in `phone` must not reach confirmation.
+
+    Guards the reported bug: "Transfer 1500 to <name>" confirmed a transfer to a
+    number that was actually a name. The value is dropped and phone is re-asked
+    with a short "that's not right" note instead of confirming.
+    """
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="transfer_phone",
+                    params={"phone": "Aidar", "amount": "1500"},
+                    confidence=0.95,
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.services.scenario.get",
+            new=AsyncMock(return_value=_TRANSFER_PHONE_SCENARIO),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()) as create_pending,
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.slotfill.create", new=AsyncMock()) as create,
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u-ph", "text": "Transfer 1500 to Aidar"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "collect"  # re-ask, not confirm
+    assert "Aidar" not in body["message"]  # the bad value is not echoed back
+    assert "phone" in body["message"].lower()  # asks for the phone number
+    assert "quite right" in body["message"]  # invalid-value note prepended
+    create_pending.assert_not_awaited()  # never reached confirmation
+    # Only the valid param survived into the persisted collection.
+    assert create.await_args.kwargs["params"] == {"amount": "1500"}
+    assert create.await_args.kwargs["missing"] == ["phone"]
+
+
+@pytest.mark.asyncio
+async def test_valid_phone_reaches_confirmation(client):
+    """A well-formed phone number passes validation and confirms as before."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="transfer_phone",
+                    params={"phone": "+77012345678", "amount": "1500"},
+                    confidence=0.96,
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.services.scenario.get",
+            new=AsyncMock(return_value=_TRANSFER_PHONE_SCENARIO),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()) as create_pending,
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u-ph2", "text": "Transfer 1500 to +7 701 234 5678"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "confirm"
+    assert "8 (701) 234 56 78" in body["message"]  # formatted, grouped display
+    create_pending.assert_awaited_once()
 
 
 # ── Multi-turn slot-filling ──────────────────────────────────────────────────

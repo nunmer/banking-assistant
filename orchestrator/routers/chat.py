@@ -27,6 +27,7 @@ from orchestrator.services import (
     session,
     slotfill,
     speechtext,
+    validators,
 )
 
 logger = logging.getLogger("orchestrator.chat")
@@ -59,15 +60,29 @@ async def _advance(
     if "account_id" not in params and user_session.get("account_id"):
         params["account_id"] = user_session["account_id"]
 
+    # A required param counts as satisfied only if it is present AND well-formed.
+    # Values that are present but malformed (a name where a phone belongs, letters
+    # where an amount belongs) are dropped so they're re-collected — with a short
+    # "that doesn't look right" note prepended to the prompt.
+    bad = {
+        p
+        for p in sc.required_params
+        if str(params.get(p) or "").strip() and not validators.is_valid(p, params.get(p))
+    }
+    for p in bad:
+        params.pop(p, None)
+
     # Ask for the first still-missing required parameter, one at a time.
     missing = [p for p in sc.required_params if not params.get(p)]
     if missing:
         await slotfill.create(
             session_id, intent=intent, params=params, missing=missing, lang=lang
         )
-        return ChatResponse(
-            action="collect", message=slot_prompt(lang, missing[0]), lang=lang
-        )
+        asked = missing[0]
+        prompt = slot_prompt(lang, asked)
+        if asked in bad:
+            prompt = f"{t(lang, 'invalid_value')} {prompt}"
+        return ChatResponse(action="collect", message=prompt, lang=lang)
 
     # All required params present — set up the confirmation.
     await slotfill.clear(session_id)

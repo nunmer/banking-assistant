@@ -74,7 +74,11 @@ Parameter rules:
 - limit: number of transactions as a string.
 - from_account_kind / to_account_kind: the user's own account by kind, as a
     currency code — "тенговый/tenge"→KZT, "долларовый/dollar"→USD, "евровый/euro"→EUR.
-- phone: recipient phone number, digits with country code if given (e.g. +77012345678).
+- phone: recipient phone number — an actual number, digits with country code if
+    given (e.g. +77012345678). Only set this when the user provides a NUMBER. If
+    they name a person instead of a number (a contact name, "маме", "to my son"),
+    leave phone unset — transfer by contact name is not supported yet, so the
+    number still has to be collected. Never put a name in the phone field.
 - term: deposit term in months (digits only).
 - card_last4: the last 4 digits of a card.
 - card_kind: card type/name if named (gold, platinum, salary, …); optional.
@@ -194,6 +198,8 @@ Rules for the value:
 - amount / limit: digits only, no currency symbols or words.
 - currency: ISO 4217 code (KZT, USD, EUR, RUB). "тенге/теңге"→KZT, "доллар"→USD, "евро"→EUR.
 - to_account / bill_id: the identifier exactly as given.
+- phone: an actual phone number (digits). If the reply is a person's name rather
+    than a number, return {{"value": null}} — a name is not a phone number.
 - Any other parameter: the literal value the user provided.
 
 Respond ONLY with JSON: {{"value": "<value>"}} — or {{"value": null}} if the

@@ -21,6 +21,7 @@ from orchestrator.models import ChatRequest, ChatResponse
 from orchestrator.services import (
     affirm,
     confirm,
+    enrich,
     llm,
     mib,
     numwords,
@@ -98,6 +99,13 @@ async def _advance(
         if asked in bad:
             prompt = f"{t(lang, 'invalid_value')} {prompt}"
         return ChatResponse(action="collect", message=prompt, lang=lang)
+
+    # Enrich with bank data (resolve accounts, products, cards, …) before
+    # confirming. A failed resolution ends the turn with a friendly reply.
+    params, err = await enrich.apply(intent, session_id, params, lang)
+    if err is not None:
+        await slotfill.clear(session_id)
+        return ChatResponse(action="reply", message=err, lang=lang)
 
     # All required params present — set up the confirmation.
     await slotfill.clear(session_id)

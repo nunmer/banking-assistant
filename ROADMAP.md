@@ -125,16 +125,28 @@ Unblocks tasks 5–11.
 
 ---
 
-### 5. Transfer between own accounts ⬜
+### 5. Transfer between own accounts ✅
 **Goal:** "Переведи с тенгового на долларовый 10000" resolves account names to
 `account_id`s and confirms with human-readable account names.
 
-**Do:** Intent `transfer_own` (params `from_account_kind`, `to_account_kind`,
-`amount`). Resolve "тенговый/долларовый/…" → `account_id` via a MIB/mock account
-lookup; confirm with names ("с Тенгового счёта на Долларовый"). Needs a
-mock-mib accounts endpoint.
+**Done:**
+- **mock-mib** `GET /accounts/{user_id}` — per-user account list (KZT/USD/EUR)
+  with per-language display names.
+- `orchestrator/services/accounts.py` — MIB account lookup + kind→account
+  resolution (`find_by_kind` matches currency codes the LLM normalises kinds to)
+  + localised `display_name`.
+- `orchestrator/services/enrich.py` — **per-intent enrichment hook** run by
+  `_advance` after validation, before confirm. `transfer_own` resolves both
+  kinds → adds `from/to_account_id` (sent to MIB) and `from/to_account_name`
+  (used by the confirm). Friendly errors: unknown kind (lists the user's real
+  accounts), same account both sides, accounts unavailable. Tasks 7–9 plug
+  their resolution into this same registry.
+- Migration `004` + seed sync: confirm templates now read
+  "Перевожу {amount} со счёта «Тенговый» на счёт «Долларовый». Подтверждаете?"
+  (all three languages).
 
-**Acceptance:** Kind words resolve to accounts; confirmation shows names, not IDs.
+**Acceptance:** Kind words resolve to accounts; confirmation shows names, not
+IDs; MIB receives resolved `account_id`s. ✅
 
 ---
 

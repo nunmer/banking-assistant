@@ -187,6 +187,112 @@ async def test_detected_language_switches_response(client):
     )
 
 
+# ── Account resolution (transfer_own) ────────────────────────────────────────
+
+_TRANSFER_OWN_SCENARIO = MagicMock(
+    intent="transfer_own",
+    display_name="Transfer Between Own Accounts",
+    required_params=["from_account_kind", "to_account_kind", "amount"],
+    confirm_template=(
+        "Перевожу {amount} со счёта «{from_account_name}» "
+        "на счёт «{to_account_name}». Подтверждаете?"
+    ),
+    confirm_templates={},
+    mib_endpoint="/transfer/own",
+    mib_method="POST",
+)
+
+_MOCK_ACCOUNTS = [
+    {"account_id": "ACC-KZT-001", "currency": "KZT",
+     "name": {"ru-RU": "Тенговый", "kk-KZ": "Теңгелік", "en-US": "Tenge"}},
+    {"account_id": "ACC-USD-001", "currency": "USD",
+     "name": {"ru-RU": "Долларовый", "kk-KZ": "Долларлық", "en-US": "Dollar"}},
+]
+
+
+@pytest.mark.asyncio
+async def test_transfer_own_confirms_with_account_names(client):
+    """Account kinds resolve to real accounts; the confirm shows names, not codes."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="transfer_own",
+                    params={"from_account_kind": "KZT", "to_account_kind": "USD",
+                            "amount": "10000"},
+                    confidence=0.95,
+                    lang="ru-RU",
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.services.scenario.get",
+            new=AsyncMock(return_value=_TRANSFER_OWN_SCENARIO),
+        ),
+        patch(
+            "orchestrator.services.accounts.list_accounts",
+            new=AsyncMock(return_value=_MOCK_ACCOUNTS),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()) as create_pending,
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+    ):
+        resp = await client.post(
+            "/chat",
+            json={"session_id": "u-own", "text": "Переведи 10000 с тенгового на долларовый"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "confirm"
+    assert "Тенговый" in body["message"] and "Долларовый" in body["message"]
+    assert "KZT" not in body["message"]  # names, not raw codes
+    # The MIB call will receive the resolved account IDs.
+    sent = create_pending.await_args.kwargs["params"]
+    assert sent["from_account_id"] == "ACC-KZT-001"
+    assert sent["to_account_id"] == "ACC-USD-001"
+
+
+@pytest.mark.asyncio
+async def test_transfer_own_unknown_kind_replies_with_accounts(client):
+    """An unresolvable kind ends the turn with the available-accounts reply."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="transfer_own",
+                    params={"from_account_kind": "GBP", "to_account_kind": "USD",
+                            "amount": "10"},
+                    confidence=0.95,
+                    lang="ru-RU",
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.services.scenario.get",
+            new=AsyncMock(return_value=_TRANSFER_OWN_SCENARIO),
+        ),
+        patch(
+            "orchestrator.services.accounts.list_accounts",
+            new=AsyncMock(return_value=_MOCK_ACCOUNTS),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()) as create_pending,
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u-own2", "text": "с фунтового на долларовый 10"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"  # not a confirm
+    assert "Тенговый" in body["message"]  # lists what the user actually has
+    create_pending.assert_not_awaited()
+
+
 # ── Parameter validation ─────────────────────────────────────────────────────
 
 

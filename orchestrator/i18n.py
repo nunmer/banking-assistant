@@ -20,6 +20,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
         "no_scenario": "Извините, с этим пока не могу помочь.",
+        "accounts_unavailable": "Не получилось загрузить ваши счета. Попробуйте, пожалуйста, чуть позже.",
+        "no_account_kind": "Не нашёл у вас счёта в валюте {kind}. Ваши счета: {available}.",
+        "same_account": "Это один и тот же счёт — перевод не нужен. 🙂 Уточните, с какого и на какой счёт перевести.",
         "missing_params": "Пожалуйста, укажите: {params}",
         "no_pending": "Не нашёл активного запроса. Возможно, истёк срок — попробуйте ещё раз.",
         "cancelled": "Хорошо, отменил. 👌",
@@ -39,6 +42,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Не керегін жазыңыз немесе айтыңыз — мысалы «+7 701 … нөміріне 5000 теңге аудар»."
         ),
         "no_scenario": "Кешіріңіз, бұған әзірге көмектесе алмаймын.",
+        "accounts_unavailable": "Шоттарыңызды жүктеу мүмкін болмады. Сәл кейінірек қайталап көріңіз.",
+        "no_account_kind": "{kind} валютасында шотыңыз табылмады. Сіздің шоттарыңыз: {available}.",
+        "same_account": "Бұл бір шот — аударым қажет емес. 🙂 Қай шоттан қай шотқа аудару керегін нақтылаңыз.",
         "missing_params": "Мына деректерді көрсетіңіз: {params}",
         "no_pending": "Белсенді сұрау табылмады. Мерзімі өткен болуы мүмкін — қайталап көріңіз.",
         "cancelled": "Жарайды, бас тарттым. 👌",
@@ -58,6 +64,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
         ),
         "no_scenario": "Sorry, I can't help with that yet.",
+        "accounts_unavailable": "I couldn't load your accounts. Please try again a little later.",
+        "no_account_kind": "You don't have a {kind} account. Your accounts: {available}.",
+        "same_account": "That's the same account on both sides — no transfer needed. 🙂 Please tell me which account to move from and to.",
         "missing_params": "Please provide: {params}",
         "no_pending": "No active request found. It may have expired — please try again.",
         "cancelled": "Okay, cancelled. 👌",

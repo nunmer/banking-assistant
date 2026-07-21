@@ -1,4 +1,4 @@
--- Scenario catalogue: schema + seed data (snapshot of alembic 001–003).
+-- Scenario catalogue: schema + seed data (snapshot of alembic 001–004).
 -- NOTE: not mounted at runtime — Alembic owns schema/seed (the orchestrator runs
 -- `alembic upgrade head` on startup). Kept in sync as a readable reference.
 
@@ -47,8 +47,8 @@ VALUES
      '/statement'),
     ('transfer_own', 'Transfer Between Own Accounts',
      '["from_account_kind","to_account_kind","amount"]', '[]',
-     'Перевожу {amount} между вашими счетами: {from_account_kind} → {to_account_kind}. Подтверждаете?',
-     '{"ru-RU":"Перевожу {amount} между вашими счетами: {from_account_kind} → {to_account_kind}. Подтверждаете?","kk-KZ":"Шоттарыңыз арасында {amount} аударамын: {from_account_kind} → {to_account_kind}. Растайсыз ба?","en-US":"I''ll move {amount} between your accounts: {from_account_kind} → {to_account_kind}. Shall I go ahead?"}',
+     'Перевожу {amount} со счёта «{from_account_name}» на счёт «{to_account_name}». Подтверждаете?',
+     '{"ru-RU":"Перевожу {amount} со счёта «{from_account_name}» на счёт «{to_account_name}». Подтверждаете?","kk-KZ":"«{from_account_name}» шотынан «{to_account_name}» шотына {amount} аударамын. Растайсыз ба?","en-US":"I''ll transfer {amount} from your {from_account_name} account to your {to_account_name} account. Shall I go ahead?"}',
      '/transfer/own'),
     ('transfer_phone', 'Transfer by Phone',
      '["phone","amount"]', '[]',

@@ -155,7 +155,10 @@
         row.remove();
         if (confirmBubble) confirmBubble.remove();
         ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
-        converse(t(key), { voice });
+        // Confirming before the prompt finished speaking cuts it — the result
+        // must never overlap the still-playing question.
+        const myTurn = newTurn();
+        converse(t(key), { voice, myTurn });
       });
       row.appendChild(btn);
     }
@@ -195,6 +198,27 @@
     Sphere.setLevel(0);
   }
 
+  // ── Interruption ───────────────────────────────────────────────────────
+  // One reply may be audible at a time. Every user action starts a new turn:
+  // it cuts any current playback, and a stale in-flight reply (confirmed
+  // before the previous audio finished) can no longer start speaking.
+  let turn = 0;
+  let currentSource = null;
+
+  function stopSpeaking() {
+    if (currentSource) {
+      try { currentSource.stop(); } catch {}
+      currentSource = null;
+    }
+    stopLevel();
+  }
+
+  function newTurn() {
+    turn += 1;
+    stopSpeaking();
+    return turn;
+  }
+
   // ── Recording ──────────────────────────────────────────────────────────
 
   let recorder = null;
@@ -209,6 +233,8 @@
   ];
 
   async function startRecording() {
+    // Tapping the mic while the bot talks is barge-in: cut the audio first.
+    const myTurn = newTurn();
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -234,7 +260,7 @@
       if (micSource) micSource.disconnect();
       stopLevel();
       const blob = new Blob(chunks, { type: mime || "audio/webm" });
-      if (blob.size > 800) handleRecording(blob);
+      if (blob.size > 800) handleRecording(blob, myTurn);
       else { setStatus("idle"); Sphere.setMode("idle"); }
     };
     recorder.start();
@@ -257,7 +283,7 @@
 
   // ── Pipeline ───────────────────────────────────────────────────────────
 
-  async function handleRecording(blob) {
+  async function handleRecording(blob, myTurn) {
     Sphere.setMode("thinking");
     setStatus("thinking", true);
     micBtn.disabled = true;
@@ -271,12 +297,14 @@
       const resp = await fetch("/api/converse", { method: "POST", body: fd });
       if (!resp.ok) throw new Error(`converse ${resp.status}`);
       const data = await resp.json();
+      // Re-enable the mic before playback so the reply can be barged into.
+      micBtn.disabled = false;
       if (!data.transcript) {
         setStatus("idle");
         Sphere.setMode("idle");
         return;
       }
-      await applyReply(data, { voice: true });
+      await applyReply(data, { voice: true, myTurn });
     } catch (err) {
       console.error(err);
       bubble(t("error"), "bot error");
@@ -288,11 +316,12 @@
   }
 
   async function sendText(text) {
+    const myTurn = newTurn(); // sending text also cuts any current speech
     bubble(text, "user");
-    converse(text, { voice: false });
+    converse(text, { voice: false, myTurn });
   }
 
-  async function converse(text, { voice }) {
+  async function converse(text, { voice, myTurn = turn }) {
     Sphere.setMode("thinking");
     setStatus("thinking", true);
     try {
@@ -315,7 +344,7 @@
         if (!resp.ok) throw new Error(`chat ${resp.status}`);
         data = await resp.json();
       }
-      await applyReply(data, { voice });
+      await applyReply(data, { voice, myTurn });
     } catch (err) {
       console.error(err);
       bubble(t("error"), "bot error");
@@ -324,7 +353,7 @@
     }
   }
 
-  async function applyReply(data, { voice }) {
+  async function applyReply(data, { voice, myTurn = turn }) {
     try {
       if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
 
@@ -340,17 +369,23 @@
         if (confirming) confirmButtons(voice, el);
       }
 
-      if (voice && data.audio) await playBase64(data.audio);
+      if (voice && data.audio) await playBase64(data.audio, myTurn);
       // TTS failed and nothing is on screen yet → fall back to text.
       else if (voice && data.message && !confirming && !data.operation)
         bubble(data.message, "bot");
     } finally {
-      setStatus("idle");
-      Sphere.setMode("idle");
+      // Only the current turn may reset the UI — an interrupted reply must
+      // not stomp the state of the action that interrupted it.
+      if (myTurn === turn) {
+        setStatus("idle");
+        Sphere.setMode("idle");
+      }
     }
   }
 
-  async function playBase64(b64) {
+  async function playBase64(b64, myTurn = turn) {
+    // A newer user action started while this reply was in flight → stay silent.
+    if (myTurn !== turn) return;
     try {
       const raw = atob(b64);
       const bytes = new Uint8Array(raw.length);
@@ -358,27 +393,41 @@
 
       const ctx = ensureAudioCtx();
       const buffer = await ctx.decodeAudioData(bytes.buffer);
+      if (myTurn !== turn) return; // interrupted during decode
+      stopSpeaking(); // safety net: never two sources at once
+
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       src.connect(analyser);
       analyser.connect(ctx.destination);
+      currentSource = src;
 
       Sphere.setMode("speaking");
       setStatus("speaking", true);
       trackLevel(analyser);
 
       await new Promise((resolve) => {
-        src.onended = resolve;
+        src.onended = resolve; // fires on natural end AND on .stop()
         src.start();
       });
+      if (currentSource === src) currentSource = null;
       stopLevel();
     } catch (err) {
       console.error("tts playback:", err);
       stopLevel();
     }
   }
+
+  // Tapping the sphere while the bot talks stops the speech.
+  document.getElementById("sphere").addEventListener("click", () => {
+    if (currentSource) {
+      stopSpeaking();
+      setStatus("idle");
+      Sphere.setMode("idle");
+    }
+  });
 
   // ── Text input ─────────────────────────────────────────────────────────
 

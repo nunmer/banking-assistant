@@ -8,9 +8,10 @@ WORKDIR /app
 COPY web/requirements.txt /app/web/requirements.txt
 RUN pip install --no-cache-dir -r /app/web/requirements.txt
 
+# ffmpeg: transcode browser recordings (WebM/Opus, MP4/AAC) to WAV for STT.
 # Self-signed TLS cert (pilot only — replace with a real cert behind a domain).
 RUN mkdir -p /certs && \
-    apt-get update && apt-get install -y --no-install-recommends openssl && \
+    apt-get update && apt-get install -y --no-install-recommends openssl ffmpeg && \
     openssl req -x509 -newkey rsa:2048 -nodes -days 730 \
       -keyout /certs/key.pem -out /certs/cert.pem \
       -subj "/CN=forte-voice-pilot" && \

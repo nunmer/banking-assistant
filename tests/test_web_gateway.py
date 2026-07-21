@@ -1,6 +1,6 @@
 """Unit tests for the web voice-bot gateway — proxies mocked, no network."""
 import time
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -79,6 +79,39 @@ async def test_chat_rejects_empty_text(client):
 async def test_stt_rejects_empty_audio(client):
     resp = await client.post("/api/stt", files={"file": ("a.webm", b"", "audio/webm")})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_stt_transcodes_browser_audio_to_wav(client):
+    """Browser WebM/MP4 recordings are ffmpeg-transcoded to WAV before STT —
+    the speech service's decoder does not read browser container formats."""
+    _StubClient.response = _StubResponse(json_data={"text": "баланс"})
+    with (
+        patch.object(gateway, "_to_wav", new=AsyncMock(return_value=b"RIFFwav")) as to_wav,
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        resp = await client.post(
+            "/api/stt", files={"file": ("voice.webm", b"webm-bytes", "audio/webm")}
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"text": "баланс"}
+    to_wav.assert_awaited_once_with(b"webm-bytes")
+    sent_name, sent_bytes, sent_mime = _StubClient.last_call["files"]["file"]
+    assert sent_name == "audio.wav" and sent_bytes == b"RIFFwav" and sent_mime == "audio/wav"
+
+
+class TestTTSTruncation:
+    def test_short_text_untouched(self):
+        assert gateway._tts_text("Готово!") == "Готово!"
+
+    def test_long_text_cut_at_sentence_boundary(self):
+        text = "Первое предложение. " + "х" * 400
+        out = gateway._tts_text(text)
+        assert out == "Первое предложение."
+
+    def test_no_boundary_hard_cut(self):
+        out = gateway._tts_text("б" * 400)
+        assert len(out) == gateway.TTS_MAX_CHARS
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ rate limit) since this endpoint is public.
 
 Same functionality as the Telegram bot: STT → orchestrator /chat → TTS.
 """
+import asyncio
 import logging
 import os
 import time
@@ -30,6 +31,9 @@ TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "jane")
 
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~4 MB ≈ well over a minute of voice
 RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
+# Yandex TTS rejects long texts; long replies (e.g. the capability list) are
+# spoken only up to a sentence boundary — the user reads the rest on screen.
+TTS_MAX_CHARS = 250
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -60,6 +64,36 @@ def _rate_limit(request: Request) -> None:
     window.append(now)
 
 
+async def _to_wav(audio: bytes) -> bytes:
+    """Transcode a browser recording to 16 kHz mono PCM WAV via ffmpeg.
+
+    Browsers record WebM/Opus (Chrome/Android) or MP4/AAC (Safari/iOS); the
+    speech service's decoder (libsndfile) reads neither, so the gateway
+    normalises everything to WAV — the shape it decodes reliably.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-i", "pipe:0", "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate(audio)
+    if proc.returncode != 0 or not out:
+        logger.error("ffmpeg transcode failed: %s", err.decode(errors="replace")[:300])
+        raise HTTPException(status_code=400, detail="Could not decode audio")
+    return out
+
+
+def _tts_text(text: str) -> str:
+    """Trim overly long replies to the last sentence boundary within the cap."""
+    if len(text) <= TTS_MAX_CHARS:
+        return text
+    cut = text[:TTS_MAX_CHARS]
+    best = max(cut.rfind(sep) for sep in (". ", "! ", "? ", "\n"))
+    return cut[: best + 1].strip() if best > 0 else cut.strip()
+
+
 class ChatIn(BaseModel):
     session_id: str
     text: str
@@ -84,11 +118,12 @@ async def stt(request: Request, file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=400, detail="Empty audio")
     if len(audio) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="Audio too large")
+    wav = await _to_wav(audio)
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             f"{SPEECH_SERVICE_URL}/stt/recognize",
-            files={"file": (file.filename or "audio.webm", audio, "application/octet-stream")},
+            files={"file": ("audio.wav", wav, "audio/wav")},
             data={"lang": STT_LANGS},
             headers=_speech_headers(),
         )
@@ -125,7 +160,7 @@ async def tts(request: Request, body: TTSIn) -> Response:
         resp = await client.post(
             f"{SPEECH_SERVICE_URL}/tts/synthesize",
             json={
-                "text": body.text,
+                "text": _tts_text(body.text),
                 "lang": body.lang or "ru-RU",
                 "voice": _voice_for_lang(body.lang),
                 "format": "MP3",

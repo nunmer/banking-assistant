@@ -6,6 +6,9 @@ class ChatRequest(BaseModel):
     session_id: str
     text: str
     lang: str | None = None  # BCP-47 tag from the bot (kk-KZ | ru-RU | en-US)
+    # Which surface sent this ("telegram" | "web"); used to attribute executed
+    # operations in history and to cross-notify the other channel.
+    channel: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -21,6 +24,9 @@ class ChatResponse(BaseModel):
     # it to pick the matching TTS voice, since the reply language may differ from
     # the session language when the user switches mid-conversation.
     lang: str | None = None
+    # Set when this reply completed an operation: {summary, status, tx_id,
+    # created_at}. Lets clients append a persistent history card immediately.
+    operation: dict | None = None
 
 
 class IntentResult(BaseModel):
@@ -35,6 +41,7 @@ class IntentResult(BaseModel):
 class ConfirmReplyRequest(BaseModel):
     session_id: str
     approved: bool
+    channel: str | None = None  # "telegram" | "web"
 
 
 class MIBResult(BaseModel):

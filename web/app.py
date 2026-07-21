@@ -168,7 +168,7 @@ async def chat(request: Request, body: ChatIn) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{ORCHESTRATOR_URL}/chat",
-            json={"session_id": body.session_id, "text": body.text},
+            json={"session_id": body.session_id, "text": body.text, "channel": "web"},
         )
     if resp.status_code != 200:
         logger.error("orchestrator failed %s: %s", resp.status_code, resp.text[:300])
@@ -223,7 +223,7 @@ async def converse(
 
         chat_resp = await client.post(
             f"{ORCHESTRATOR_URL}/chat",
-            json={"session_id": session_id, "text": user_text},
+            json={"session_id": session_id, "text": user_text, "channel": "web"},
         )
         if chat_resp.status_code != 200:
             logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
@@ -279,6 +279,20 @@ async def tts(request: Request, body: TTSIn) -> Response:
         logger.error("TTS failed %s: %s", resp.status_code, resp.text[:300])
         raise HTTPException(status_code=502, detail="Speech synthesis failed")
     return Response(content=resp.content, media_type="audio/mpeg")
+
+
+@app.get("/api/history")
+async def api_history(request: Request, session_id: str, limit: int = 20) -> dict:
+    """Recent executed operations for this session (shared with Telegram)."""
+    _rate_limit(request)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{ORCHESTRATOR_URL}/history/{session_id}", params={"limit": limit}
+        )
+    if resp.status_code != 200:
+        logger.error("history failed %s: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=502, detail="History is unavailable")
+    return resp.json()
 
 
 @app.get("/")

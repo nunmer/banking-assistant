@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 
-from orchestrator.routers import chat, confirm
+from orchestrator.routers import chat, confirm, history
 from orchestrator.services import session as session_svc
 
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +13,7 @@ app = FastAPI(title="Forte Assistant Orchestrator")
 
 app.include_router(chat.router)
 app.include_router(confirm.router)
+app.include_router(history.router)
 
 
 class LangRequest(BaseModel):

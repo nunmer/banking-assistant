@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from orchestrator.i18n import t
 from orchestrator.models import ChatResponse, ConfirmReplyRequest
+from orchestrator.routers.chat import _record_operation
 from orchestrator.services import confirm, mib, session
 
 logger = logging.getLogger("orchestrator.confirm")
@@ -33,4 +34,5 @@ async def confirm_reply(req: ConfirmReplyRequest) -> ChatResponse:
         method=pending.get("mib_method", "POST"),
     )
 
-    return ChatResponse(action="reply", message=result.message)
+    operation = await _record_operation(req, pending, result, result.message, lang)
+    return ChatResponse(action="reply", message=result.message, operation=operation)

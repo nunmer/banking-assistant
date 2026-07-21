@@ -9,15 +9,18 @@ from orchestrator.main import app
 
 @pytest.fixture(autouse=True)
 def _slotfill_defaults():
-    """Neutralise the Redis-backed slot-fill store for every test.
+    """Neutralise external stores/services for every test.
 
-    Default: no in-progress collection, writes are no-ops. Slot-filling tests
-    override `slotfill.get` with their own patch.
+    Slot-fill (Redis), operation history (Postgres), and Telegram notification
+    become no-ops. Tests that assert on them apply their own patches.
     """
     with (
         patch("orchestrator.services.slotfill.get", new=AsyncMock(return_value=None)),
         patch("orchestrator.services.slotfill.create", new=AsyncMock()),
         patch("orchestrator.services.slotfill.clear", new=AsyncMock()),
+        patch("orchestrator.services.history.record", new=AsyncMock()),
+        patch("orchestrator.services.history.list_recent", new=AsyncMock(return_value=[])),
+        patch("orchestrator.services.notify.telegram_operation", new=AsyncMock()),
     ):
         yield
 

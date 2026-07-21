@@ -129,7 +129,7 @@ async def handle_confirm_callback(callback: CallbackQuery) -> None:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{settings.ORCHESTRATOR_URL}/confirm/reply",
-                json={"session_id": session_id, "approved": approved},
+                json={"session_id": session_id, "approved": approved, "channel": "telegram"},
             )
             resp.raise_for_status()
             data = resp.json()

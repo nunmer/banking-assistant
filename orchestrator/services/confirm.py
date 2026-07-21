@@ -17,13 +17,23 @@ def _key(session_id: str) -> str:
     return f"confirm:{session_id}"
 
 
-async def create_pending(session_id: str, scenario: Scenario, params: dict) -> None:
+async def create_pending(
+    session_id: str,
+    scenario: Scenario,
+    params: dict,
+    summary: str = "",
+    lang: str = "ru-RU",
+) -> None:
+    # `summary` is the rendered confirmation text the user will approve — kept
+    # so the executed operation can be recorded in history verbatim.
     payload = json.dumps(
         {
             "scenario_intent": scenario.intent,
             "mib_endpoint": scenario.mib_endpoint,
             "mib_method": scenario.mib_method,
             "params": params,
+            "summary": summary,
+            "lang": lang,
         }
     )
     await redis.setex(_key(session_id), settings.CONFIRM_TTL, payload)

@@ -78,6 +78,22 @@ async def test_chat_proxies_to_orchestrator(client):
     assert resp.json()["action"] == "confirm"
     assert _StubClient.last_call["url"].endswith("/chat")
     assert _StubClient.last_call["json"]["session_id"] == "web-1"
+    assert _StubClient.last_call["json"]["channel"] == "web"  # history attribution
+
+
+@pytest.mark.asyncio
+async def test_history_proxies_to_orchestrator(client):
+    class _GetStub(_StubClient):
+        async def get(self, url, **kwargs):
+            _StubClient.last_call = {"url": url, **kwargs}
+            return _StubResponse(json_data={"operations": [{"summary": "op"}]})
+
+    with patch.object(gateway.httpx, "AsyncClient", _GetStub):
+        resp = await client.get("/api/history?session_id=12345&limit=5")
+    assert resp.status_code == 200
+    assert resp.json() == {"operations": [{"summary": "op"}]}
+    assert _StubClient.last_call["url"].endswith("/history/12345")
+    assert _StubClient.last_call["params"] == {"limit": 5}
 
 
 @pytest.mark.asyncio

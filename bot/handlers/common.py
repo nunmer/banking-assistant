@@ -20,7 +20,7 @@ async def send_to_orchestrator(session_id: str, text: str, lang: str | None = No
     Normal messages omit it so the persisted session language — set via /lang —
     is never overwritten by the caller's Telegram locale.
     """
-    payload: dict = {"session_id": session_id, "text": text}
+    payload: dict = {"session_id": session_id, "text": text, "channel": "telegram"}
     if lang is not None:
         payload["lang"] = lang
     async with httpx.AsyncClient(timeout=30.0) as client:

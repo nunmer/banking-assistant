@@ -10,6 +10,31 @@ class Base(DeclarativeBase):
     pass
 
 
+class Operation(Base):
+    """A completed (executed or failed) banking operation.
+
+    The durable operation history behind both channels: recorded once at
+    execution time, listed in the Mini App / web UI after any restart. Keyed by
+    session_id — which for Telegram-authenticated users is the Telegram user
+    id, so Telegram-chat and Mini App history are one and the same.
+    """
+
+    __tablename__ = "operations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    intent: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The confirmation text the user approved, in the language they approved it.
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    lang: Mapped[str] = mapped_column(String(8), nullable=False, default="ru-RU")
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # success | error
+    tx_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Scenario(Base):
     __tablename__ = "scenarios"
 

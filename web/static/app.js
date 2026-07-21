@@ -31,24 +31,60 @@
     (localStorage.setItem("forte_session", crypto.randomUUID()),
     localStorage.getItem("forte_session"));
 
-  // ── Telegram Mini App integration ──────────────────────────────────────
+  // ── Telegram Mini App integration + startup ────────────────────────────
   const tg = window.Telegram && window.Telegram.WebApp;
-  if (tg && tg.initData) {
-    tg.ready();
-    tg.expand();
-    if (tg.setHeaderColor) tg.setHeaderColor("#0d0410");
-    // Chat scrolling shouldn't drag-close the Mini App (Bot API 7.7+).
-    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-    fetch("/api/tg-auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: tg.initData }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && data.session_id) sessionId = data.session_id;
-      })
-      .catch(() => {}); // unverified → keep the anonymous browser session
+
+  async function init() {
+    if (tg && tg.initData) {
+      tg.ready();
+      tg.expand();
+      if (tg.setHeaderColor) tg.setHeaderColor("#0d0410");
+      // Chat scrolling shouldn't drag-close the Mini App (Bot API 7.7+).
+      if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+      try {
+        const r = await fetch("/api/tg-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ init_data: tg.initData }),
+        });
+        if (r.ok) {
+          const data = await r.json();
+          if (data.session_id) sessionId = data.session_id;
+        }
+      } catch {} // unverified → keep the anonymous browser session
+    }
+    // History must load AFTER auth so it belongs to the right session — for
+    // Telegram users this includes operations done in the chat bot.
+    await loadHistory();
+  }
+
+  async function loadHistory() {
+    try {
+      const r = await fetch(
+        `/api/history?session_id=${encodeURIComponent(sessionId)}&limit=20`
+      );
+      if (!r.ok) return;
+      const { operations } = await r.json();
+      // Newest-first from the API; render oldest-first so the log reads down.
+      for (const op of (operations || []).reverse()) opCard(op);
+    } catch {} // history is progressive enhancement — never block the app
+  }
+
+  function opCard(op) {
+    const el = document.createElement("div");
+    el.className = `bubble op ${op.status === "success" ? "ok" : "fail"}`;
+    const icon = op.status === "success" ? "✅" : "⚠️";
+    const when = op.created_at
+      ? new Date(op.created_at).toLocaleString(uiLang, {
+          day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+        })
+      : "";
+    const via = op.channel === "telegram" ? " · Telegram" : "";
+    el.innerHTML =
+      `<div class="op-summary"></div><div class="op-meta">${icon} ${when}${via}</div>`;
+    el.querySelector(".op-summary").textContent = op.summary;
+    chatEl.appendChild(el);
+    chatEl.scrollTop = chatEl.scrollHeight;
   }
 
   let uiLang = "ru-RU"; // follows the language of the last bot reply
@@ -293,16 +329,21 @@
       if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
 
       const confirming = data.action === "confirm";
-      // Text modality shows every reply; voice modality shows only the
-      // confirmation (so the user sees exactly what they approve).
-      if (!voice || confirming) {
+      if (data.operation) {
+        // A completed operation stays in the log as a persistent card — in
+        // BOTH modalities. This is the durable record, synced with Telegram.
+        opCard({ ...data.operation, created_at: new Date().toISOString() });
+      } else if (!voice || confirming) {
+        // Text modality shows every reply; voice modality shows only the
+        // confirmation (so the user sees exactly what they approve).
         const el = bubble(data.message, "bot");
         if (confirming) confirmButtons(voice, el);
       }
 
       if (voice && data.audio) await playBase64(data.audio);
       // TTS failed and nothing is on screen yet → fall back to text.
-      else if (voice && data.message && !confirming) bubble(data.message, "bot");
+      else if (voice && data.message && !confirming && !data.operation)
+        bubble(data.message, "bot");
     } finally {
       setStatus("idle");
       Sphere.setMode("idle");
@@ -350,4 +391,5 @@
   });
 
   setStatus("idle");
+  init();
 })();

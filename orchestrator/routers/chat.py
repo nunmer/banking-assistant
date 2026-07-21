@@ -22,8 +22,10 @@ from orchestrator.services import (
     affirm,
     confirm,
     enrich,
+    history,
     llm,
     mib,
+    notify,
     numwords,
     scenario,
     session,
@@ -35,6 +37,37 @@ from orchestrator.services import (
 logger = logging.getLogger("orchestrator.chat")
 
 router = APIRouter()
+
+
+async def _record_operation(
+    req, pending: dict, result, result_message: str, lang: str
+) -> dict:
+    """Persist an executed operation and cross-notify Telegram for web ops.
+
+    Returns the operation dict included in the ChatResponse so clients can
+    render a persistent history card immediately.
+    """
+    summary = pending.get("summary") or pending.get("scenario_intent", "")
+    channel = req.channel or "unknown"
+    await history.record(
+        session_id=req.session_id,
+        intent=pending.get("scenario_intent", ""),
+        summary=summary,
+        lang=pending.get("lang") or lang,
+        status=result.status,
+        tx_id=result.tx_id,
+        channel=channel,
+    )
+    if channel == "web":
+        # Mirror the operation into the user's Telegram chat (no-op for
+        # anonymous browser sessions).
+        await notify.telegram_operation(req.session_id, summary, result_message)
+    return {
+        "summary": summary,
+        "status": result.status,
+        "tx_id": result.tx_id,
+        "channel": channel,
+    }
 
 
 async def _detect_lang(session_id: str, current: str, detected: str | None) -> str:
@@ -109,7 +142,6 @@ async def _advance(
 
     # All required params present — set up the confirmation.
     await slotfill.clear(session_id)
-    await confirm.create_pending(session_id=session_id, scenario=sc, params=params)
 
     templates: dict = sc.confirm_templates or {}
     template = templates.get(lang) or sc.confirm_template
@@ -121,6 +153,11 @@ async def _advance(
     except (KeyError, IndexError):
         msg = f"{sc.display_name}?"
         speech = None
+
+    # The rendered confirm text doubles as the history summary once approved.
+    await confirm.create_pending(
+        session_id=session_id, scenario=sc, params=params, summary=msg, lang=lang
+    )
 
     speech = speech if speech and speech != msg else None
     return ChatResponse(action="confirm", message=msg, speech=speech, lang=lang)
@@ -145,7 +182,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 method=pending.get("mib_method", "POST"),
             )
             key = "operation_error" if result.status == "error" else "operation_done"
-            return ChatResponse(action="reply", message=t(lang, key), lang=lang)
+            message = t(lang, key)
+            operation = await _record_operation(req, pending, result, message, lang)
+            return ChatResponse(
+                action="reply", message=message, lang=lang, operation=operation
+            )
         if decision == "no":
             await confirm.clear_pending(req.session_id)
             return ChatResponse(action="reply", message=t(lang, "cancelled"), lang=lang)

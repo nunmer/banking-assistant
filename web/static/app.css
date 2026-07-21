@@ -133,6 +133,26 @@ body {
 
 .bubble.error { border-color: var(--danger); color: var(--danger); }
 
+/* Persistent record of an executed operation (synced with Telegram). */
+.bubble.op {
+  align-self: stretch;
+  max-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-left: 3px solid var(--magenta);
+  border-radius: 12px;
+}
+
+.bubble.op.fail { border-left-color: var(--danger); }
+
+.op-summary { font-size: 0.92rem; }
+
+.op-meta {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
 /* Inline confirm buttons under a bot bubble */
 .confirm-row {
   display: flex;

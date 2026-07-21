@@ -1,4 +1,20 @@
--- Scenario catalogue: schema + seed data (snapshot of alembic 001–004).
+-- Scenario catalogue: schema + seed data (snapshot of alembic 001–005).
+
+-- Executed-operation history (alembic 005). Written at execution time from
+-- both confirm paths; read by the Mini App / web history view. session_id for
+-- Telegram-authenticated users is the Telegram user id — one shared history.
+CREATE TABLE IF NOT EXISTS operations (
+    id         SERIAL PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL,
+    intent     VARCHAR(64) NOT NULL,
+    summary    TEXT NOT NULL,
+    lang       VARCHAR(8) NOT NULL DEFAULT 'ru-RU',
+    status     VARCHAR(16) NOT NULL,
+    tx_id      VARCHAR(64) NOT NULL DEFAULT '',
+    channel    VARCHAR(16) NOT NULL DEFAULT 'unknown',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_operations_session_id ON operations (session_id);
 -- NOTE: not mounted at runtime — Alembic owns schema/seed (the orchestrator runs
 -- `alembic upgrade head` on startup). Kept in sync as a readable reference.
 

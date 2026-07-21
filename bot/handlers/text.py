@@ -55,6 +55,19 @@ async def handle_start(message: Message) -> None:
     await message.answer(t(lang, "start"), reply_markup=reply_markup)
 
 
+@router.message(Command("app"))
+async def handle_app(message: Message) -> None:
+    """Open the Mini App — the always-available entry point from the menu."""
+    lang = _user_lang(message)
+    if not settings.WEB_APP_URL:
+        await message.answer(t(lang, "error_generic"))
+        return
+    await message.answer(
+        t(lang, "app_prompt"),
+        reply_markup=web_app_keyboard(t(lang, "web_version"), settings.WEB_APP_URL),
+    )
+
+
 @router.message(Command("lang"))
 async def handle_lang(message: Message) -> None:
     """Show the language picker, or set directly via /lang kk | ru | en."""

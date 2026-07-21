@@ -52,6 +52,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "error_generic": "Что-то пошло не так. Попробуйте ещё раз.",
         "transcript_prefix": "🗣 _{}_ ",
         "web_version": "🌐 Попробовать веб-версию",
+        "app_prompt": "Голосовой ассистент AI-nur — нажмите, чтобы открыть:",
     },
     "kk-KZ": {
         "start": (
@@ -75,6 +76,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "error_generic": "Бірдеңе дұрыс болмады. Қайталап көріңіз.",
         "transcript_prefix": "🗣 _{}_ ",
         "web_version": "🌐 Веб-нұсқасын байқап көріңіз",
+        "app_prompt": "AI-nur дауыстық ассистенті — ашу үшін басыңыз:",
     },
     "en-US": {
         "start": (
@@ -98,6 +100,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "error_generic": "Something went wrong. Please try again.",
         "transcript_prefix": "🗣 _{}_ ",
         "web_version": "🌐 Try the web version",
+        "app_prompt": "AI-nur voice assistant — tap to open:",
     },
 }
 

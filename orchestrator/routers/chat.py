@@ -23,6 +23,7 @@ from orchestrator.services import (
     confirm,
     llm,
     mib,
+    numwords,
     scenario,
     session,
     slotfill,
@@ -44,11 +45,13 @@ async def _detect_lang(session_id: str, current: str, detected: str | None) -> s
 
 
 async def _advance(
-    session_id: str, user_session: dict, intent: str, params: dict, lang: str
+    session_id: str, user_session: dict, intent: str, params: dict, lang: str, text: str
 ) -> ChatResponse:
     """Validate params for an intent, then collect the next slot or confirm.
 
     Shared by the fresh-classification path and the slot-filling continuation.
+    `text` is the raw user message, used to recover exact digit values (phone)
+    that the LLM transcribes unreliably from dictated number-words.
     """
     sc = await scenario.get(intent)
     if sc is None:
@@ -59,6 +62,18 @@ async def _advance(
     params = dict(params)
     if "account_id" not in params and user_session.get("account_id"):
         params["account_id"] = user_session["account_id"]
+
+    # A dictated phone number arrives as number-words the LLM transcribes
+    # unreliably; parse the exact digits deterministically from the raw text and
+    # override the LLM's guess. Only when this scenario actually takes a phone,
+    # and only when a valid number is found (otherwise keep any existing value).
+    expects_phone = "phone" in (sc.required_params or []) or "phone" in (
+        getattr(sc, "optional_params", None) or []
+    )
+    if text and expects_phone:
+        phone = numwords.phone_from_text(text, lang)
+        if phone:
+            params["phone"] = phone
 
     # A required param counts as satisfied only if it is present AND well-formed.
     # Values that are present but malformed (a name where a phone belongs, letters
@@ -140,7 +155,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         value = await llm.extract_param(req.text, sf["intent"], asked, lang)
         if value:
             params = {**sf["params"], asked: value}
-            return await _advance(req.session_id, user_session, sf["intent"], params, lang)
+            return await _advance(req.session_id, user_session, sf["intent"], params, lang, req.text)
 
         # Couldn't read the asked slot as a bare answer. Reclassify to catch a
         # full restatement of this intent, or a switch to a different one.
@@ -153,11 +168,12 @@ async def chat(req: ChatRequest) -> ChatResponse:
             if intent_result.intent == sf["intent"]:
                 # Restatement: merge any newly given params and keep collecting.
                 params = {**sf["params"], **intent_result.params}
-                return await _advance(req.session_id, user_session, sf["intent"], params, lang)
+                return await _advance(req.session_id, user_session, sf["intent"], params, lang, req.text)
             # Switch to a different intent.
             await slotfill.clear(req.session_id)
             return await _advance(
-                req.session_id, user_session, intent_result.intent, dict(intent_result.params), lang
+                req.session_id, user_session, intent_result.intent,
+                dict(intent_result.params), lang, req.text
             )
 
         # Nothing usable — re-ask the same slot.
@@ -183,5 +199,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
         return ChatResponse(action="reply", message=t(lang, "unknown_intent"), lang=lang)
 
     return await _advance(
-        req.session_id, user_session, intent_result.intent, dict(intent_result.params), lang
+        req.session_id, user_session, intent_result.intent,
+        dict(intent_result.params), lang, req.text
     )

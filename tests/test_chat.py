@@ -235,6 +235,49 @@ async def test_name_in_phone_is_rejected_and_reasked(client):
 
 
 @pytest.mark.asyncio
+async def test_dictated_phone_is_corrected_deterministically(client):
+    """A phone dictated as Kazakh number-words is captured from the raw text.
+
+    Guards the reported bug: the LLM non-deterministically mis-transcribed a long
+    spoken number (777/581 instead of 775/815). Even when classify returns a
+    wrong phone, the deterministic parser overrides it from the transcript.
+    """
+    transcript = (
+        "сегіз жеті жүз жетпіс бес сегіз жүз он бес елу бес жетпіс алты "
+        "нөміріне бес мың теңге аудару керек"
+    )
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(
+                return_value=IntentResult(
+                    intent="transfer_phone",
+                    params={"phone": "87775815576", "amount": "5000"},  # LLM got it wrong
+                    confidence=0.95,
+                    lang="kk-KZ",
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.services.scenario.get",
+            new=AsyncMock(return_value=_TRANSFER_PHONE_SCENARIO),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "kk-KZ"})),
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u-dict", "text": transcript}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "confirm"
+    assert "8 (775) 815 55 76" in body["message"]  # corrected from the transcript
+    assert "777" not in body["message"]  # the LLM's wrong digits are gone
+
+
+@pytest.mark.asyncio
 async def test_valid_phone_reaches_confirmation(client):
     """A well-formed phone number passes validation and confirms as before."""
     with (

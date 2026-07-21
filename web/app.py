@@ -8,13 +8,14 @@ rate limit) since this endpoint is public.
 Same functionality as the Telegram bot: STT → orchestrator /chat → TTS.
 """
 import asyncio
+import base64
 import logging
 import os
 import time
 from collections import defaultdict, deque
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -173,6 +174,88 @@ async def chat(request: Request, body: ChatIn) -> dict:
         logger.error("orchestrator failed %s: %s", resp.status_code, resp.text[:300])
         raise HTTPException(status_code=502, detail="Assistant is unavailable")
     return resp.json()
+
+
+@app.post("/api/converse")
+async def converse(
+    request: Request,
+    session_id: str = Form(...),
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+) -> dict:
+    """One-round-trip voice turn: STT → chat → TTS, all server-side.
+
+    The three-request flow (stt, chat, tts) made the browser pay internet
+    latency between every stage — ~3s slower than Telegram, whose bot runs the
+    same chain over localhost. This endpoint mirrors the bot: audio (or a text
+    from a voice-mode button) goes up once; the reply text and its MP3 come
+    back together. The MP3 is base64 in the JSON — replies are a few seconds
+    of speech, so the payload stays small.
+    """
+    _rate_limit(request)
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        transcript = None
+        if file is not None:
+            audio = await file.read()
+            if not audio:
+                raise HTTPException(status_code=400, detail="Empty audio")
+            if len(audio) > MAX_AUDIO_BYTES:
+                raise HTTPException(status_code=413, detail="Audio too large")
+            wav = await _to_wav(audio)
+            stt_resp = await client.post(
+                f"{SPEECH_SERVICE_URL}/stt/recognize",
+                files={"file": ("audio.wav", wav, "audio/wav")},
+                data={"lang": STT_LANGS},
+                headers=_speech_headers(),
+            )
+            if stt_resp.status_code != 200:
+                logger.error("STT failed %s: %s", stt_resp.status_code, stt_resp.text[:300])
+                raise HTTPException(status_code=502, detail="Speech recognition failed")
+            transcript = stt_resp.json().get("text", "").strip()
+            if not transcript:
+                return {"transcript": "", "message": None, "action": None,
+                        "lang": None, "audio": None}
+
+        user_text = transcript if transcript else (text or "").strip()
+        if not user_text:
+            raise HTTPException(status_code=400, detail="No audio or text given")
+
+        chat_resp = await client.post(
+            f"{ORCHESTRATOR_URL}/chat",
+            json={"session_id": session_id, "text": user_text},
+        )
+        if chat_resp.status_code != 200:
+            logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
+            raise HTTPException(status_code=502, detail="Assistant is unavailable")
+        data = chat_resp.json()
+
+        # Synthesize the spoken reply; on failure the client falls back to text.
+        audio_b64 = None
+        speak_text = _tts_text(data.get("speech") or data.get("message") or "")
+        if speak_text:
+            tts_resp = await client.post(
+                f"{SPEECH_SERVICE_URL}/tts/synthesize",
+                json={
+                    "text": speak_text,
+                    "lang": data.get("lang") or "ru-RU",
+                    "voice": _voice_for_lang(data.get("lang")),
+                    "format": "MP3",
+                },
+                headers=_speech_headers(),
+            )
+            if tts_resp.status_code == 200:
+                audio_b64 = base64.b64encode(tts_resp.content).decode()
+            else:
+                logger.error("TTS failed %s: %s", tts_resp.status_code, tts_resp.text[:300])
+
+    return {
+        "transcript": transcript,
+        "message": data.get("message"),
+        "action": data.get("action"),
+        "lang": data.get("lang"),
+        "audio": audio_b64,
+    }
 
 
 @app.post("/api/tts")

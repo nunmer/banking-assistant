@@ -226,19 +226,21 @@
     setStatus("thinking", true);
     micBtn.disabled = true;
     try {
+      // One round trip: STT → chat → TTS run server-side (like the Telegram
+      // bot), instead of the browser paying internet latency between stages.
       const fd = new FormData();
+      fd.append("session_id", sessionId);
       const ext = blob.type.includes("mp4") ? "m4a" : "webm";
       fd.append("file", blob, `voice.${ext}`);
-      const resp = await fetch("/api/stt", { method: "POST", body: fd });
-      if (!resp.ok) throw new Error(`stt ${resp.status}`);
-      const { text } = await resp.json();
-      if (!text || !text.trim()) {
+      const resp = await fetch("/api/converse", { method: "POST", body: fd });
+      if (!resp.ok) throw new Error(`converse ${resp.status}`);
+      const data = await resp.json();
+      if (!data.transcript) {
         setStatus("idle");
         Sphere.setMode("idle");
         return;
       }
-      // Voice modality: no transcript bubble — the conversation stays spoken.
-      await converse(text, { voice: true });
+      await applyReply(data, { voice: true });
     } catch (err) {
       console.error(err);
       bubble(t("error"), "bot error");
@@ -258,13 +260,36 @@
     Sphere.setMode("thinking");
     setStatus("thinking", true);
     try {
-      const resp = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, text }),
-      });
-      if (!resp.ok) throw new Error(`chat ${resp.status}`);
-      const data = await resp.json();
+      let data;
+      if (voice) {
+        // Voice-mode turn (e.g. a confirm-button tap): combined endpoint so
+        // the reply audio arrives in the same round trip.
+        const fd = new FormData();
+        fd.append("session_id", sessionId);
+        fd.append("text", text);
+        const resp = await fetch("/api/converse", { method: "POST", body: fd });
+        if (!resp.ok) throw new Error(`converse ${resp.status}`);
+        data = await resp.json();
+      } else {
+        const resp = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, text }),
+        });
+        if (!resp.ok) throw new Error(`chat ${resp.status}`);
+        data = await resp.json();
+      }
+      await applyReply(data, { voice });
+    } catch (err) {
+      console.error(err);
+      bubble(t("error"), "bot error");
+      setStatus("idle");
+      Sphere.setMode("idle");
+    }
+  }
+
+  async function applyReply(data, { voice }) {
+    try {
       if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
 
       const confirming = data.action === "confirm";
@@ -275,28 +300,23 @@
         if (confirming) confirmButtons(voice, el);
       }
 
-      if (voice) await speakReply(data.speech || data.message, data.lang);
-    } catch (err) {
-      console.error(err);
-      bubble(t("error"), "bot error");
+      if (voice && data.audio) await playBase64(data.audio);
+      // TTS failed and nothing is on screen yet → fall back to text.
+      else if (voice && data.message && !confirming) bubble(data.message, "bot");
     } finally {
       setStatus("idle");
       Sphere.setMode("idle");
     }
   }
 
-  async function speakReply(text, lang) {
+  async function playBase64(b64) {
     try {
-      const resp = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, lang }),
-      });
-      if (!resp.ok) return; // fall back to what's on screen
-      const encoded = await resp.arrayBuffer();
+      const raw = atob(b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
 
       const ctx = ensureAudioCtx();
-      const buffer = await ctx.decodeAudioData(encoded);
+      const buffer = await ctx.decodeAudioData(bytes.buffer);
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       const analyser = ctx.createAnalyser();

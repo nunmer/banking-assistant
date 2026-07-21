@@ -20,9 +20,15 @@ class _StubResponse:
 
 
 class _StubClient:
-    """Stands in for httpx.AsyncClient; records the last call."""
+    """Stands in for httpx.AsyncClient; records calls.
+
+    `response` serves every call; set `responses` (a list) instead to serve a
+    sequence — one per backend call, as /api/converse makes (stt, chat, tts).
+    """
 
     last_call = None
+    calls: list = []
+    responses: list | None = None
 
     def __init__(self, *args, **kwargs):
         pass
@@ -35,12 +41,17 @@ class _StubClient:
 
     async def post(self, url, **kwargs):
         _StubClient.last_call = {"url": url, **kwargs}
+        _StubClient.calls.append(_StubClient.last_call)
+        if _StubClient.responses:
+            return _StubClient.responses.pop(0)
         return _StubClient.response
 
 
 @pytest.fixture
 async def client():
     gateway._hits.clear()  # isolate the rate limiter between tests
+    _StubClient.calls = []
+    _StubClient.responses = None
     async with AsyncClient(
         transport=ASGITransport(app=gateway.app), base_url="http://test"
     ) as ac:
@@ -152,6 +163,74 @@ async def test_tg_auth_returns_verified_session(client):
         resp = await client.post("/api/tg-auth", json={"init_data": "signed-blob"})
     assert resp.status_code == 200
     assert resp.json() == {"session_id": "42"}
+
+
+@pytest.mark.asyncio
+async def test_converse_voice_single_round_trip(client):
+    """/api/converse runs stt → chat → tts server-side and returns everything."""
+    import base64 as b64
+
+    _StubClient.responses = [
+        _StubResponse(json_data={"text": "переведи 5000"}),                    # stt
+        _StubResponse(json_data={"action": "collect", "message": "Кому?",
+                                 "speech": None, "lang": "ru-RU"}),            # chat
+        _StubResponse(content=b"mp3bytes"),                                    # tts
+    ]
+    with (
+        patch.object(gateway, "_to_wav", new=AsyncMock(return_value=b"RIFF")),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        resp = await client.post(
+            "/api/converse",
+            data={"session_id": "u-conv"},
+            files={"file": ("v.webm", b"webm-bytes", "audio/webm")},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["transcript"] == "переведи 5000"
+    assert body["message"] == "Кому?"
+    assert body["action"] == "collect"
+    assert b64.b64decode(body["audio"]) == b"mp3bytes"
+    # Exactly three backend calls, in pipeline order, within one request.
+    urls = [c["url"] for c in _StubClient.calls]
+    assert [u.rsplit("/", 1)[-1] for u in urls] == ["recognize", "chat", "synthesize"]
+
+
+@pytest.mark.asyncio
+async def test_converse_text_turn_returns_audio(client):
+    """A voice-mode button tap sends text and still gets reply audio back."""
+    _StubClient.responses = [
+        _StubResponse(json_data={"action": "reply", "message": "Готово! ✅",
+                                 "speech": None, "lang": "ru-RU"}),            # chat
+        _StubResponse(content=b"okbytes"),                                     # tts
+    ]
+    with patch.object(gateway.httpx, "AsyncClient", _StubClient):
+        resp = await client.post(
+            "/api/converse", data={"session_id": "u-conv2", "text": "да"}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["transcript"] is None
+    assert body["message"] == "Готово! ✅"
+    assert body["audio"] is not None
+
+
+@pytest.mark.asyncio
+async def test_converse_empty_transcript_short_circuits(client):
+    """Unintelligible audio returns early — no chat, no TTS."""
+    _StubClient.responses = [_StubResponse(json_data={"text": "  "})]  # stt only
+    with (
+        patch.object(gateway, "_to_wav", new=AsyncMock(return_value=b"RIFF")),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        resp = await client.post(
+            "/api/converse",
+            data={"session_id": "u-conv3"},
+            files={"file": ("v.webm", b"webm-bytes", "audio/webm")},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["transcript"] == ""
+    assert len(_StubClient.calls) == 1  # stopped after stt
 
 
 @pytest.mark.asyncio

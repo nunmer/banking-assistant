@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#12000d" />
+  <title>Forte Voice — голосовой ассистент</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="wordmark">forte<span class="wordmark-accent">voice</span></div>
+    <div class="badge">Solo</div>
+  </header>
+
+  <main class="stage">
+    <section class="sphere-wrap">
+      <canvas id="sphere"></canvas>
+      <div id="status" class="status">Нажмите на микрофон и говорите</div>
+    </section>
+
+    <section id="chat" class="chat" aria-live="polite"></section>
+  </main>
+
+  <footer class="controls">
+    <form id="text-form" class="text-form" autocomplete="off">
+      <input
+        id="text-input"
+        type="text"
+        placeholder="Или напишите сообщение…"
+        maxlength="500"
+      />
+      <button type="submit" class="send-btn" aria-label="Отправить">➤</button>
+    </form>
+    <button id="mic" class="mic" aria-label="Говорить">
+      <svg viewBox="0 0 24 24" width="30" height="30" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <rect x="9" y="3" width="6" height="11" rx="3" />
+        <path d="M5 11a7 7 0 0 0 14 0" />
+        <line x1="12" y1="18" x2="12" y2="21" />
+      </svg>
+    </button>
+  </footer>
+
+  <script src="/static/sphere.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

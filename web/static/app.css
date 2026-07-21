@@ -1,0 +1,251 @@
+/* Forte Voice — dark "Solo" theme: near-black with dark magenta. */
+
+:root {
+  --bg: #0d0410;
+  --bg-glow: #1c0618;
+  --surface: #1a0f1e;
+  --surface-2: #241226;
+  --magenta: #c0166c;
+  --magenta-bright: #ee2d8b;
+  --magenta-soft: #ff6ab2;
+  --violet: #6b2a8f;
+  --text: #f5edf4;
+  --text-dim: #b79fb4;
+  --danger: #ff4d67;
+  --radius: 18px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(120vw 80vh at 50% -10%, var(--bg-glow), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 20px 10px;
+}
+
+.wordmark {
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.wordmark-accent {
+  background: linear-gradient(90deg, var(--magenta-bright), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--magenta-soft);
+  border: 1px solid var(--magenta);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+/* ── Stage: sphere + chat ────────────────────────────────────────────── */
+
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sphere-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+#sphere {
+  width: min(62vw, 340px);
+  height: min(62vw, 340px);
+  touch-action: none;
+}
+
+.status {
+  min-height: 1.4em;
+  margin-top: 2px;
+  font-size: 0.92rem;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0 24px;
+  transition: color 0.3s;
+}
+
+.status.active { color: var(--magenta-soft); }
+
+/* ── Chat log ────────────────────────────────────────────────────────── */
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  scroll-behavior: smooth;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: pop 0.22s ease-out;
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--magenta), #8f1155);
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.bot {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-bottom-left-radius: 6px;
+}
+
+.bubble.error { border-color: var(--danger); color: var(--danger); }
+
+/* Inline confirm buttons under a bot bubble */
+.confirm-row {
+  display: flex;
+  gap: 10px;
+  align-self: flex-start;
+}
+
+.confirm-row button {
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--magenta);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.confirm-row button.yes { background: var(--magenta); }
+.confirm-row button.yes:active { background: var(--magenta-bright); }
+.confirm-row button.no:active { background: var(--surface-2); }
+
+/* ── Bottom controls ─────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+}
+
+.text-form {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-radius: 999px;
+  padding: 6px 6px 6px 18px;
+}
+
+#text-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+#text-input::placeholder { color: var(--text-dim); }
+
+.send-btn {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--magenta-soft);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.mic {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--magenta-bright), var(--violet));
+  box-shadow: 0 0 24px rgba(238, 45, 139, 0.45);
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.3s;
+}
+
+.mic:active { transform: scale(0.94); }
+
+.mic.recording {
+  background: linear-gradient(135deg, var(--danger), var(--magenta-bright));
+  box-shadow: 0 0 34px rgba(255, 77, 103, 0.6);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.mic:disabled { opacity: 0.45; cursor: default; }
+
+@keyframes pulse {
+  50% { box-shadow: 0 0 46px rgba(255, 77, 103, 0.9); }
+}
+
+/* ── Larger screens: widen the column ────────────────────────────────── */
+
+@media (min-width: 720px) {
+  .stage, .controls, .topbar {
+    width: 100%;
+    max-width: 680px;
+    margin-inline: auto;
+  }
+  #sphere { width: 360px; height: 360px; }
+}

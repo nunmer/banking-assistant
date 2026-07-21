@@ -51,6 +51,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "empty_audio": "Ничего не разобрал — повторите, пожалуйста.",
         "error_generic": "Что-то пошло не так. Попробуйте ещё раз.",
         "transcript_prefix": "🗣 _{}_ ",
+        "web_version": "🌐 Попробовать веб-версию",
     },
     "kk-KZ": {
         "start": (
@@ -73,6 +74,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "empty_audio": "Ештеңе естілмеді — қайталаңыз.",
         "error_generic": "Бірдеңе дұрыс болмады. Қайталап көріңіз.",
         "transcript_prefix": "🗣 _{}_ ",
+        "web_version": "🌐 Веб-нұсқасын байқап көріңіз",
     },
     "en-US": {
         "start": (
@@ -95,6 +97,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "empty_audio": "I didn't catch that — could you say it again?",
         "error_generic": "Something went wrong. Please try again.",
         "transcript_prefix": "🗣 _{}_ ",
+        "web_version": "🌐 Try the web version",
     },
 }
 

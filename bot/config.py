@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     TTS_VOICE_EN: str = "jane"   # no English voice available — Russian fallback
     # Fallback voice for any language without a specific mapping.
     TTS_VOICE_DEFAULT: str = "jane"
+    # Public URL of the web voice client; when set, /start shows a
+    # "try the web version" button linking to it.
+    WEB_APP_URL: str = ""
 
 
 settings = Settings()

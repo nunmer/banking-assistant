@@ -55,17 +55,6 @@ body {
   color: transparent;
 }
 
-.badge {
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--magenta-soft);
-  border: 1px solid var(--magenta);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-
 /* ── Stage: sphere + chat ────────────────────────────────────────────── */
 
 .stage {

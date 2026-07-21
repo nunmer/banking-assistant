@@ -3,10 +3,16 @@
  * Flow (same contract as the Telegram bot):
  *   mic tap → record → POST /api/stt → transcript
  *   transcript (or typed text) → POST /api/chat → {action, message, speech, lang}
- *   reply → POST /api/tts → MP3 → play, sphere reacts to playback level
+ *   voice reply → POST /api/tts → MP3 → Web Audio playback
  *
- * The sphere reacts to the user's mic level while recording and to the bot's
- * voice while a reply is playing.
+ * Modality follows the user: a spoken request gets a spoken answer (no chat
+ * bubbles), a typed request gets a text answer. The one exception is an
+ * operation confirmation — its message + Да/Нет buttons are always shown, in
+ * both modalities, so the user can see exactly what they are approving.
+ *
+ * Playback goes through an AudioContext buffer source (not an <audio> tag):
+ * the context is unlocked by the mic-tap gesture, so playback can start after
+ * the multi-second STT→chat→TTS chain without tripping autoplay policies.
  */
 (function () {
   "use strict";
@@ -76,7 +82,9 @@
     return el;
   }
 
-  function confirmButtons() {
+  function confirmButtons(voice) {
+    // The buttons inherit the modality of the turn that produced them, so a
+    // voice conversation stays voice after a tap on Да/Нет.
     const row = document.createElement("div");
     row.className = "confirm-row";
     for (const [key, cls] of [["yes", "yes"], ["no", "no"]]) {
@@ -85,7 +93,9 @@
       btn.className = cls;
       btn.addEventListener("click", () => {
         row.remove();
-        sendText(t(key));
+        ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
+        if (!voice) bubble(t(key), "user");
+        converse(t(key), { voice });
       });
       row.appendChild(btn);
     }
@@ -203,8 +213,8 @@
         Sphere.setMode("idle");
         return;
       }
-      bubble(text, "user");
-      await converse(text, { speak: true });
+      // Voice modality: no transcript bubble — the conversation stays spoken.
+      await converse(text, { voice: true });
     } catch (err) {
       console.error(err);
       bubble(t("error"), "bot error");
@@ -217,10 +227,10 @@
 
   async function sendText(text) {
     bubble(text, "user");
-    converse(text, { speak: false });
+    converse(text, { voice: false });
   }
 
-  async function converse(text, { speak }) {
+  async function converse(text, { voice }) {
     Sphere.setMode("thinking");
     setStatus("thinking", true);
     try {
@@ -233,10 +243,13 @@
       const data = await resp.json();
       if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
 
-      bubble(data.message, "bot");
-      if (data.action === "confirm") confirmButtons();
+      const confirming = data.action === "confirm";
+      // Text modality shows every reply; voice modality shows only the
+      // confirmation (so the user sees exactly what they approve).
+      if (!voice || confirming) bubble(data.message, "bot");
+      if (confirming) confirmButtons(voice);
 
-      if (speak) await speakReply(data.speech || data.message, data.lang);
+      if (voice) await speakReply(data.speech || data.message, data.lang);
     } catch (err) {
       console.error(err);
       bubble(t("error"), "bot error");
@@ -253,15 +266,15 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, lang }),
       });
-      if (!resp.ok) return; // silent fallback to text-only
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      if (!resp.ok) return; // fall back to what's on screen
+      const encoded = await resp.arrayBuffer();
 
       const ctx = ensureAudioCtx();
+      const buffer = await ctx.decodeAudioData(encoded);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
-      const src = ctx.createMediaElementSource(audio);
       src.connect(analyser);
       analyser.connect(ctx.destination);
 
@@ -270,12 +283,10 @@
       trackLevel(analyser);
 
       await new Promise((resolve) => {
-        audio.onended = resolve;
-        audio.onerror = resolve;
-        audio.play().catch(resolve); // autoplay blocked → fall back silently
+        src.onended = resolve;
+        src.start();
       });
       stopLevel();
-      URL.revokeObjectURL(url);
     } catch (err) {
       console.error("tts playback:", err);
       stopLevel();

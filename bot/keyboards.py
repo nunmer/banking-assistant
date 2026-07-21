@@ -20,6 +20,13 @@ def lang_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def web_link_keyboard(label: str, url: str) -> InlineKeyboardMarkup:
+    """Single URL button linking to the web voice client."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=label, url=url)]]
+    )
+
+
 def confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

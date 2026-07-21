@@ -215,9 +215,12 @@ async def test_converse_voice_single_round_trip(client):
 @pytest.mark.asyncio
 async def test_converse_text_turn_returns_audio(client):
     """A voice-mode button tap sends text and still gets reply audio back."""
+    operation = {"summary": "Перевод 5000 тенге → 8 (775) 815 55 76",
+                 "status": "success", "tx_id": "MOCK-1", "channel": "web"}
     _StubClient.responses = [
         _StubResponse(json_data={"action": "reply", "message": "Готово! ✅",
-                                 "speech": None, "lang": "ru-RU"}),            # chat
+                                 "speech": None, "lang": "ru-RU",
+                                 "operation": operation}),                     # chat
         _StubResponse(content=b"okbytes"),                                     # tts
     ]
     with patch.object(gateway.httpx, "AsyncClient", _StubClient):
@@ -229,6 +232,9 @@ async def test_converse_text_turn_returns_audio(client):
     assert body["transcript"] is None
     assert body["message"] == "Готово! ✅"
     assert body["audio"] is not None
+    # The operation record must survive the gateway — the client's history
+    # card is rendered from it (dropping it wiped confirmations without trace).
+    assert body["operation"] == operation
 
 
 @pytest.mark.asyncio

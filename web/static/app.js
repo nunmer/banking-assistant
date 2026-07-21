@@ -420,13 +420,13 @@
     }
   }
 
-  // Tapping the sphere while the bot talks stops the speech.
+  // The sphere is a talk button too: tap to speak, tap again to finish.
+  // Tapping while the bot talks cuts the speech and starts listening
+  // (startRecording opens a new turn, which stops any current playback).
   document.getElementById("sphere").addEventListener("click", () => {
-    if (currentSource) {
-      stopSpeaking();
-      setStatus("idle");
-      Sphere.setMode("idle");
-    }
+    if (micBtn.disabled) return; // mid-processing — ignore taps
+    if (recorder) stopRecording();
+    else startRecording();
   });
 
   // ── Text input ─────────────────────────────────────────────────────────

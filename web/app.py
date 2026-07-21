@@ -254,6 +254,9 @@ async def converse(
         "message": data.get("message"),
         "action": data.get("action"),
         "lang": data.get("lang"),
+        # Completed-operation record — the client renders its history card
+        # from this; dropping it would wipe the confirmation without a trace.
+        "operation": data.get("operation"),
         "audio": audio_b64,
     }
 

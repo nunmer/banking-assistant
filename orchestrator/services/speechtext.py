@@ -16,6 +16,12 @@ DEFAULT_LANG = "ru-RU"
 # `phone` is handled separately (grouped, not digit-by-digit).
 IDENTIFIER_PARAMS = frozenset({"to_account", "account_id", "bill_id", "card_last4"})
 
+# Trunk-prefix word for the spoken phone number. The leading "8" must be a WORD
+# for Kazakh TTS: as a bare digit before the first group ("8, 775") the Kazakh
+# normaliser reads it as an ordinal + counter ("сегізінші рет" ≈ "8 times 775").
+# Russian/English read the digit correctly, so they keep "8".
+_TRUNK_WORD = {"kk": "сегіз"}
+
 # Currency-code params, localised to a spoken/written word.
 _CURRENCY_WORDS = {
     "ru-RU": {"KZT": "тенге", "USD": "доллар", "EUR": "евро", "RUB": "рубль"},
@@ -58,13 +64,14 @@ def spell_out(value: str) -> str:
     return " ".join(ch for ch in str(value) if not ch.isspace())
 
 
-def format_phone(value: str, for_speech: bool = False) -> str:
+def format_phone(value: str, for_speech: bool = False, lang: str = DEFAULT_LANG) -> str:
     """Format a Kazakhstan phone number in the local grouped style.
 
     Display:  8 (775) 543 75 75
     Speech:   8, 775, 543, 75, 75  — comma-separated groups so TTS reads each as
               a whole number ("семьсот семьдесят пять"), not merged or spelled
-              digit-by-digit.
+              digit-by-digit. For Kazakh the leading trunk prefix is the word
+              "сегіз" rather than the digit 8 (see `_TRUNK_WORD`).
     Falls back to the raw value (display) / spelled-out digits (speech) if the
     number isn't the expected 10-digit KZ shape.
     """
@@ -79,7 +86,8 @@ def format_phone(value: str, for_speech: bool = False) -> str:
         return spell_out(value) if for_speech else str(value)
     a, b, c, d = rest[:3], rest[3:6], rest[6:8], rest[8:10]
     if for_speech:
-        return f"8, {a}, {b}, {c}, {d}"
+        trunk = _TRUNK_WORD.get((lang or "")[:2].lower(), "8")
+        return f"{trunk}, {a}, {b}, {c}, {d}"
     return f"8 ({a}) {b} {c} {d}"
 
 
@@ -108,7 +116,7 @@ def for_speech(params: dict, lang: str) -> dict:
     out = {}
     for key, val in params.items():
         if key == "phone":
-            out[key] = format_phone(val, for_speech=True)
+            out[key] = format_phone(val, for_speech=True, lang=lang)
         elif key in _LOCALIZED:
             out[key] = _localize(key, val, lang)
         elif key in IDENTIFIER_PARAMS:

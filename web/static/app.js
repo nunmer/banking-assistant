@@ -104,9 +104,11 @@
     return el;
   }
 
-  function confirmButtons(voice) {
+  function confirmButtons(voice, confirmBubble) {
     // The buttons inherit the modality of the turn that produced them, so a
     // voice conversation stays voice after a tap on Да/Нет.
+    // Mirrors Telegram: answering removes the confirmation prompt entirely —
+    // the result replaces it rather than piling up underneath.
     const row = document.createElement("div");
     row.className = "confirm-row";
     for (const [key, cls] of [["yes", "yes"], ["no", "no"]]) {
@@ -115,8 +117,8 @@
       btn.className = cls;
       btn.addEventListener("click", () => {
         row.remove();
+        if (confirmBubble) confirmBubble.remove();
         ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
-        if (!voice) bubble(t(key), "user");
         converse(t(key), { voice });
       });
       row.appendChild(btn);
@@ -268,8 +270,10 @@
       const confirming = data.action === "confirm";
       // Text modality shows every reply; voice modality shows only the
       // confirmation (so the user sees exactly what they approve).
-      if (!voice || confirming) bubble(data.message, "bot");
-      if (confirming) confirmButtons(voice);
+      if (!voice || confirming) {
+        const el = bubble(data.message, "bot");
+        if (confirming) confirmButtons(voice, el);
+      }
 
       if (voice) await speakReply(data.speech || data.message, data.lang);
     } catch (err) {

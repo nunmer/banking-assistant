@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Message
 from bot.config import settings
 from bot.handlers.common import get_user_lang, send_to_orchestrator
 from bot.i18n import DEFAULT_LANG, SUPPORTED, resolve_lang, t
-from bot.keyboards import confirm_keyboard, lang_keyboard, web_link_keyboard
+from bot.keyboards import confirm_keyboard, lang_keyboard, web_app_keyboard
 
 # Bilingual prompt shown above the language picker (user may not have a lang yet).
 LANG_PROMPT = "Тілді таңдаңыз / Выберите язык / Choose your language:"
@@ -46,8 +46,9 @@ async def handle_start(message: Message) -> None:
     lang = _user_lang(message)
     # Seed the session with the Telegram locale so voice works on first use.
     await _persist_lang(str(message.from_user.id), lang)
+    # Mini App button — opens the voice client inside Telegram (same session).
     reply_markup = (
-        web_link_keyboard(t(lang, "web_version"), settings.WEB_APP_URL)
+        web_app_keyboard(t(lang, "web_version"), settings.WEB_APP_URL)
         if settings.WEB_APP_URL
         else None
     )

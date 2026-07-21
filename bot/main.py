@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from bot.config import settings
 from bot.handlers import text, voice
@@ -32,6 +32,13 @@ async def main() -> None:
     logger.info("Starting Forte Assistant bot (long polling)")
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands(BOT_COMMANDS)
+    # Persistent menu button next to the input field opens the Mini App.
+    if settings.WEB_APP_URL:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="AI-nur", web_app=WebAppInfo(url=settings.WEB_APP_URL)
+            )
+        )
     await dp.start_polling(bot)
 
 

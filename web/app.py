@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from web import telegram_auth
+
 logger = logging.getLogger("web.gateway")
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://orchestrator:8000")
@@ -28,6 +30,8 @@ STT_LANGS = os.getenv("STT_LANGS", "ru-RU,kk-KZ")
 TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "jane")
 TTS_VOICE_KK = os.getenv("TTS_VOICE_KK", "madi")
 TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "jane")
+# Bot token — used only to verify Telegram Mini App initData signatures.
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~4 MB ≈ well over a minute of voice
 RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
@@ -102,6 +106,27 @@ class ChatIn(BaseModel):
 class TTSIn(BaseModel):
     text: str
     lang: str | None = None
+
+
+class TgAuthIn(BaseModel):
+    init_data: str
+
+
+@app.post("/api/tg-auth")
+async def tg_auth(request: Request, body: TgAuthIn) -> dict:
+    """Verify Telegram Mini App initData and return the authenticated session.
+
+    The returned session_id is the Telegram user id — the same id the chat bot
+    uses — so a conversation started in Telegram continues in the Mini App.
+    """
+    _rate_limit(request)
+    fields = telegram_auth.verify_init_data(body.init_data, TELEGRAM_TOKEN)
+    if fields is None:
+        raise HTTPException(status_code=401, detail="Invalid Telegram init data")
+    uid = telegram_auth.user_id_from(fields)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="No user in init data")
+    return {"session_id": uid}
 
 
 @app.get("/health")

@@ -23,11 +23,33 @@
   const form = document.getElementById("text-form");
   const input = document.getElementById("text-input");
 
-  // Stable per-browser session, so multi-turn slot-filling works.
-  const sessionId =
+  // Stable per-browser session, so multi-turn slot-filling works. Inside
+  // Telegram this is replaced (below) by the verified Telegram user id, so the
+  // Mini App shares one conversation session with the chat bot.
+  let sessionId =
     localStorage.getItem("forte_session") ||
     (localStorage.setItem("forte_session", crypto.randomUUID()),
     localStorage.getItem("forte_session"));
+
+  // ── Telegram Mini App integration ──────────────────────────────────────
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg && tg.initData) {
+    tg.ready();
+    tg.expand();
+    if (tg.setHeaderColor) tg.setHeaderColor("#0d0410");
+    // Chat scrolling shouldn't drag-close the Mini App (Bot API 7.7+).
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    fetch("/api/tg-auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: tg.initData }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.session_id) sessionId = data.session_id;
+      })
+      .catch(() => {}); // unverified → keep the anonymous browser session
+  }
 
   let uiLang = "ru-RU"; // follows the language of the last bot reply
 

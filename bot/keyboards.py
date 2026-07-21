@@ -1,5 +1,5 @@
 """Inline keyboards used by the bot."""
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 # Language picker shown under a message. Tapping a flag fires `setlang:<tag>`.
 _LANG_BUTTONS: list[tuple[str, str]] = [
@@ -21,9 +21,16 @@ def lang_keyboard() -> InlineKeyboardMarkup:
 
 
 def web_link_keyboard(label: str, url: str) -> InlineKeyboardMarkup:
-    """Single URL button linking to the web voice client."""
+    """Single URL button linking to the web voice client (opens in browser)."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=label, url=url)]]
+    )
+
+
+def web_app_keyboard(label: str, url: str) -> InlineKeyboardMarkup:
+    """Single Mini App button — opens the voice client inside Telegram."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=label, web_app=WebAppInfo(url=url))]]
     )
 
 

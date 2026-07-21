@@ -140,3 +140,22 @@ async def test_index_serves_ui(client):
     resp = await client.get("/")
     assert resp.status_code == 200
     assert "sphere" in resp.text  # the digital sphere canvas is present
+    assert "telegram-web-app.js" in resp.text  # Mini App bridge loaded
+
+
+@pytest.mark.asyncio
+async def test_tg_auth_returns_verified_session(client):
+    with (
+        patch.object(gateway.telegram_auth, "verify_init_data", return_value={"user": "..."}),
+        patch.object(gateway.telegram_auth, "user_id_from", return_value="42"),
+    ):
+        resp = await client.post("/api/tg-auth", json={"init_data": "signed-blob"})
+    assert resp.status_code == 200
+    assert resp.json() == {"session_id": "42"}
+
+
+@pytest.mark.asyncio
+async def test_tg_auth_rejects_invalid_signature(client):
+    with patch.object(gateway.telegram_auth, "verify_init_data", return_value=None):
+        resp = await client.post("/api/tg-auth", json={"init_data": "forged"})
+    assert resp.status_code == 401

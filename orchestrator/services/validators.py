@@ -15,9 +15,13 @@ def _digits(value: str) -> str:
 
 
 def _valid_phone(value: str) -> bool:
-    # Kazakhstan: 10 local digits, or 11 with an 8/7 country prefix.
+    # Kazakhstan: 10 local digits, or 11 with an 8/7 trunk prefix. The national
+    # number always starts with 7 (both mobile 7xx codes and city codes), which
+    # also stops the numwords phone reassembly from accepting a bogus reading.
     d = _digits(value)
-    return len(d) == 10 or (len(d) == 11 and d[0] in "78")
+    if len(d) == 10:
+        return d[0] == "7"
+    return len(d) == 11 and d[0] in "78" and d[1] == "7"
 
 
 def _positive_int(value: str) -> bool:

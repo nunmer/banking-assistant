@@ -76,3 +76,36 @@ class TestPhoneFromText:
     def test_english_digits_still_found(self):
         # Even without a lexicon, a typed digit run is recovered.
         assert numwords.phone_from_text("call 87758155576 please", "en-US") == "87758155576"
+
+
+class TestMergedGroupAmbiguity:
+    """"400, 33" and "433" are the same spoken words — the phone shape decides.
+
+    Guards the reported bug: 8 700 400 33 22 was recognized as 8 700 433 22
+    (the 400/33 boundary merged, silently dropping two digits).
+    """
+
+    def test_kazakh_dictated_merged_hundreds(self):
+        kk = "сегіз жеті жүз төрт жүз отыз үш жиырма екі"
+        assert numwords.phone_from_text(kk, "kk-KZ") == "87004003322"
+
+    def test_russian_dictated_merged_hundreds(self):
+        ru = "восемь семьсот четыреста тридцать три двадцать два"
+        assert numwords.phone_from_text(ru, "ru-RU") == "87004003322"
+
+    def test_pre_merged_digits_recovered(self):
+        # STT/LLM may hand us the already-merged digits; still recoverable.
+        assert numwords.phone_from_text("8 700 433 22", "kk-KZ") == "87004003322"
+
+    def test_kazakh_adjacent_hundreds_split(self):
+        # "жеті жүз төрт жүз" is 700 then 400 — the 4 multiplies the new
+        # hundred, it does not extend the previous number to 704.
+        assert numwords.spoken_to_digits("жеті жүз төрт жүз", "kk-KZ") == "700 400"
+
+    def test_valid_number_never_altered(self):
+        # A concatenation that is already a valid phone wins over any expansion.
+        assert numwords.phone_from_text("8 775 815 55 76", "kk-KZ") == "87758155576"
+
+    def test_incomplete_number_not_invented(self):
+        # Too few digits stays unrecognized — no expansion fabricates a phone.
+        assert numwords.phone_from_text("8 700 433", "kk-KZ") is None

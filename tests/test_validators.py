@@ -19,6 +19,14 @@ class TestPhone:
     def test_too_short_rejected(self):
         assert not validators.is_valid("phone", "12345")
 
+    def test_10_digits_not_starting_with_7_rejected(self):
+        # KZ national numbers always start with 7; guards the numwords
+        # reassembly from accepting a bogus 10-digit reading.
+        assert not validators.is_valid("phone", "8700433202")
+
+    def test_11_digits_without_7_after_trunk_rejected(self):
+        assert not validators.is_valid("phone", "88012345678")
+
     def test_empty_rejected(self):
         assert not validators.is_valid("phone", "")
 

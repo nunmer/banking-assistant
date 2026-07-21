@@ -18,6 +18,9 @@ like "бес мың" = 5000). Ordinals and fractions are intentionally left alon
 from __future__ import annotations
 
 import re
+from itertools import product
+
+from orchestrator.services import validators
 
 # Token kinds:
 #   u  unit (0-9)
@@ -107,13 +110,13 @@ def _numbers_from_run(run: list[tuple[str, int]]) -> list[int]:
                 flush()
             h = val
         elif kind == "hk":  # Kazakh жүз, multiplied by the preceding unit
+            # The unit just before жүз is its multiplier ("төрт жүз" = 400), so
+            # take it back out of the current number before closing that number.
+            mult = u if 1 <= u <= 9 else 1
+            u = 0
             if h != 0 or t != 0:
                 flush()
-                mult = 1
-            else:
-                mult = u if 1 <= u <= 9 else 1
             h = mult * 100
-            u = 0
             unit_locked = False
         elif kind == "k":  # thousand scales everything gathered so far
             group = th * 1000 + h + t + u
@@ -167,23 +170,64 @@ def spoken_to_digits(text: str, lang: str) -> str:
     return "".join(out)
 
 
-def _digit_runs(text: str) -> list[str]:
-    """Concatenations of adjacent whitespace-separated pure-digit tokens."""
-    runs: list[str] = []
+def _digit_group_runs(text: str) -> list[list[str]]:
+    """Runs of adjacent whitespace-separated pure-digit tokens, groups kept."""
+    runs: list[list[str]] = []
     current: list[str] = []
     for tok in text.split():
         if tok.isdigit():
             current.append(tok)
         elif current:
-            runs.append("".join(current))
+            runs.append(current)
             current = []
     if current:
-        runs.append("".join(current))
+        runs.append(current)
     return runs
 
 
-def _is_kz_phone(digits: str) -> bool:
-    return len(digits) == 10 or (len(digits) == 11 and digits[0] in "78")
+def _expansions(group: str) -> list[tuple[str, ...]]:
+    """Alternative readings of one greedily-parsed digit group.
+
+    Spoken cardinals are ambiguous at group boundaries: "четыреста тридцать
+    три" / "төрт жүз отыз үш" is one number (433) but is also exactly how the
+    two groups "400, 33" are dictated — same words, same audio. The greedy
+    parse merges them; the phone-shape search below may need the split
+    reading back, so each merged group also offers its decomposition.
+    """
+    options: list[tuple[str, ...]] = [(group,)]
+    if len(group) == 3 and group[0] != "0" and group[1:] != "00":
+        # 433 → 400 + 33 (hundred, then the spoken remainder)
+        options.append((group[0] + "00", str(int(group[1:]))))
+    elif len(group) == 2 and group[0] != "0" and group[1] != "0":
+        # 55 → 50 + 5
+        options.append((group[0] + "0", group[1]))
+    return options
+
+
+_MAX_COMBOS = 512
+
+
+def _phone_from_groups(groups: list[str]) -> str | None:
+    """Find a valid KZ phone among the readings of a run of digit groups.
+
+    Tries the plain concatenation first (zero splits), then combinations with
+    the fewest group expansions — so an already-valid number is never altered,
+    and a merged group is only split when that is what makes the shape valid.
+    """
+    choices = [_expansions(g) for g in groups]
+    total = 1
+    for c in choices:
+        total *= len(c)
+    if total > _MAX_COMBOS:  # degenerate input — only try the plain reading
+        choices = [(c[0],) for c in choices]
+    combos = sorted(
+        product(*choices), key=lambda combo: sum(len(parts) - 1 for parts in combo)
+    )
+    for combo in combos:
+        digits = "".join("".join(parts) for parts in combo)
+        if validators.is_valid("phone", digits):
+            return digits
+    return None
 
 
 def phone_from_text(text: str, lang: str) -> str | None:
@@ -191,11 +235,12 @@ def phone_from_text(text: str, lang: str) -> str | None:
 
     Works for both dictated words ("сегіз жеті жүз …") and typed digits
     ("+7 701 234 5678", "8 775 815 55 76") by first converting any number-words
-    to digits, then concatenating adjacent digit groups and returning the first
-    run that has a valid KZ phone shape. Returns None if none is found.
+    to digits, then reassembling adjacent digit groups into a valid KZ phone
+    shape (resolving merged-group ambiguity). Returns None if none is found.
     """
     normalized = spoken_to_digits(text, lang)
-    for run in _digit_runs(normalized):
-        if _is_kz_phone(run):
-            return run
+    for groups in _digit_group_runs(normalized):
+        phone = _phone_from_groups(groups)
+        if phone:
+            return phone
     return None

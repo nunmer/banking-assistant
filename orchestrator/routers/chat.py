@@ -27,6 +27,7 @@ from orchestrator.services import (
     mib,
     notify,
     numwords,
+    opsummary,
     scenario,
     session,
     slotfill,
@@ -154,9 +155,11 @@ async def _advance(
         msg = f"{sc.display_name}?"
         speech = None
 
-    # The rendered confirm text doubles as the history summary once approved.
+    # History wants the essentials, not the confirmation question — store a
+    # compact per-intent summary ("Перевод 5000 тенге → 8 (775) …").
     await confirm.create_pending(
-        session_id=session_id, scenario=sc, params=params, summary=msg, lang=lang
+        session_id=session_id, scenario=sc, params=params,
+        summary=opsummary.short(intent, params, lang), lang=lang,
     )
 
     speech = speech if speech and speech != msg else None

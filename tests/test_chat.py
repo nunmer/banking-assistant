@@ -252,6 +252,9 @@ async def test_transfer_own_confirms_with_account_names(client):
     sent = create_pending.await_args.kwargs["params"]
     assert sent["from_account_id"] == "ACC-KZT-001"
     assert sent["to_account_id"] == "ACC-USD-001"
+    # History gets the compact record, not the confirmation question.
+    assert create_pending.await_args.kwargs["summary"] == \
+        "Перевод 10000: Тенговый → Долларовый"
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,11 @@
     (localStorage.setItem("forte_session", crypto.randomUUID()),
     localStorage.getItem("forte_session"));
 
+  // Telegram first name, for a personalised greeting — only ever set inside
+  // the Mini App (verified via /api/tg-auth); null for an anonymous browser
+  // session, and never guessed client-side.
+  let userName = null;
+
   // ── Telegram Mini App integration + startup ────────────────────────────
   const tg = window.Telegram && window.Telegram.WebApp;
 
@@ -54,6 +59,7 @@
         if (r.ok) {
           const data = await r.json();
           if (data.session_id) sessionId = data.session_id;
+          if (data.user_name) userName = data.user_name;
         }
       } catch {} // unverified → keep the anonymous browser session
     }
@@ -283,7 +289,7 @@
     };
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ session_id: sessionId }));
+      socket.send(JSON.stringify({ session_id: sessionId, user_name: userName }));
       micSource.connect(processor);
       // ScriptProcessorNode only fires onaudioprocess while connected into the
       // graph toward the destination — route through a silent gain node so
@@ -420,6 +426,7 @@
       // bot), instead of the browser paying internet latency between stages.
       const fd = new FormData();
       fd.append("session_id", sessionId);
+      if (userName) fd.append("user_name", userName);
       const ext = blob.type.includes("mp4") ? "m4a" : "webm";
       fd.append("file", blob, `voice.${ext}`);
       const resp = await fetch("/api/converse", { method: "POST", body: fd });
@@ -460,6 +467,7 @@
         const fd = new FormData();
         fd.append("session_id", sessionId);
         fd.append("text", text);
+        if (userName) fd.append("user_name", userName);
         const resp = await fetch("/api/converse", { method: "POST", body: fd });
         if (!resp.ok) throw new Error(`converse ${resp.status}`);
         data = await resp.json();
@@ -467,7 +475,7 @@
         const resp = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, text }),
+          body: JSON.stringify({ session_id: sessionId, text, user_name: userName }),
         });
         if (!resp.ok) throw new Error(`chat ${resp.status}`);
         data = await resp.json();

@@ -63,3 +63,15 @@ class TestUserId:
 
     def test_malformed_user_json(self):
         assert telegram_auth.user_id_from({"user": "not-json"}) is None
+
+
+class TestUserName:
+    def test_extracts_first_name(self):
+        fields = telegram_auth.verify_init_data(_signed_init_data(), BOT_TOKEN)
+        assert telegram_auth.user_name_from(fields) == "Test"
+
+    def test_missing_user_field(self):
+        assert telegram_auth.user_name_from({}) is None
+
+    def test_malformed_user_json(self):
+        assert telegram_auth.user_name_from({"user": "not-json"}) is None

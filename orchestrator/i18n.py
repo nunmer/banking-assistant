@@ -22,6 +22,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
         "greeting": "Здравствуйте! Чем могу помочь?",
+        "greeting_named": "Здравствуйте, {name}! Чем могу помочь?",
         "farewell": "Рад был помочь! Обращайтесь, если что-то понадобится.",
         "no_scenario": "Извините, с этим пока не могу помочь.",
         "accounts_unavailable": "Не получилось загрузить ваши счета. Попробуйте, пожалуйста, чуть позже.",
@@ -45,6 +46,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация және менеджермен байланыс\n\n"
             "Не керегін жазыңыз немесе айтыңыз — мысалы «+7 701 … нөміріне 5000 теңге аудар»."
         ),
+        "greeting_named": "Сәлеметсіз бе, {name}! Сізге қалай көмектесе аламын?",
         "farewell": "Көмектескеніме қуаныштымын! Қажет болса, айта беріңіз.",
         "no_scenario": "Кешіріңіз, бұған әзірге көмектесе алмаймын.",
         "accounts_unavailable": "Шоттарыңызды жүктеу мүмкін болмады. Сәл кейінірек қайталап көріңіз.",
@@ -69,6 +71,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
         ),
         "greeting": "Hello! How can I help you today?",
+        "greeting_named": "Hello, {name}! How can I help you today?",
         "farewell": "Glad I could help! Feel free to reach out again if you need anything.",
         "no_scenario": "Sorry, I can't help with that yet.",
         "accounts_unavailable": "I couldn't load your accounts. Please try again a little later.",

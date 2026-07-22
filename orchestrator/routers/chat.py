@@ -49,12 +49,12 @@ def _speech_or_none(message: str, candidate: str) -> str | None:
     return candidate if candidate and candidate != message else None
 
 
-def _reply(lang: str, key: str) -> ChatResponse:
+def _reply(lang: str, key: str, **kwargs: str) -> ChatResponse:
     """A terminal `t(lang, key)` reply, with its speech variant attached."""
-    msg = t(lang, key)
+    msg = t(lang, key, **kwargs)
     return ChatResponse(
         action="reply", message=msg,
-        speech=_speech_or_none(msg, i18n_speech(lang, key)), lang=lang,
+        speech=_speech_or_none(msg, i18n_speech(lang, key, **kwargs)), lang=lang,
     )
 
 
@@ -270,6 +270,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
     )
 
     if intent_result.intent in _SMALL_TALK:
+        # Personalise the greeting when the channel knows the user's name
+        # (Telegram bot/Mini App) — never guessed, just omitted otherwise.
+        if intent_result.intent == "greeting" and req.user_name:
+            return _reply(lang, "greeting_named", name=req.user_name)
         return _reply(lang, intent_result.intent)
 
     if (

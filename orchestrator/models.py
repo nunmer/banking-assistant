@@ -9,6 +9,10 @@ class ChatRequest(BaseModel):
     # Which surface sent this ("telegram" | "web"); used to attribute executed
     # operations in history and to cross-notify the other channel.
     channel: str | None = None
+    # The user's first name, when the channel knows it (Telegram bot/Mini App;
+    # never available for an anonymous browser session). Used to personalise
+    # the greeting reply — omitted entirely when unknown, not guessed.
+    user_name: str | None = None
 
 
 class ChatResponse(BaseModel):

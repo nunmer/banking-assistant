@@ -109,7 +109,9 @@ async def handle_text(message: Message) -> None:
     lang = await get_user_lang(session_id, fallback=_user_lang(message))
 
     try:
-        data = await send_to_orchestrator(session_id, message.text)
+        data = await send_to_orchestrator(
+            session_id, message.text, user_name=message.from_user.first_name
+        )
     except httpx.HTTPError as e:
         logger.error("orchestrator call failed: %s", e)
         await message.answer(t(lang, "error_generic"))

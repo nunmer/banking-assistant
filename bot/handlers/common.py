@@ -13,16 +13,24 @@ def speech_headers() -> dict[str, str]:
     return {"X-API-Key": settings.SPEECH_API_KEY} if settings.SPEECH_API_KEY else {}
 
 
-async def send_to_orchestrator(session_id: str, text: str, lang: str | None = None) -> dict:
+async def send_to_orchestrator(
+    session_id: str, text: str, lang: str | None = None, user_name: str | None = None
+) -> dict:
     """POST a user utterance to the orchestrator /chat endpoint.
 
     `lang` is only sent when explicitly provided (e.g. to seed a new session).
     Normal messages omit it so the persisted session language — set via /lang —
     is never overwritten by the caller's Telegram locale.
+
+    `user_name` (the Telegram first name) lets the orchestrator personalise a
+    greeting reply — Telegram gives us this on every message, so it costs
+    nothing to always pass it.
     """
     payload: dict = {"session_id": session_id, "text": text, "channel": "telegram"}
     if lang is not None:
         payload["lang"] = lang
+    if user_name:
+        payload["user_name"] = user_name
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(f"{settings.ORCHESTRATOR_URL}/chat", json=payload)
         resp.raise_for_status()

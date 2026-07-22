@@ -80,7 +80,9 @@ async def handle_voice(message: Message, bot: Bot) -> None:
     await message.answer(t(lang, "transcript_prefix").format(transcript), parse_mode="Markdown")
 
     try:
-        data = await send_to_orchestrator(session_id, transcript)
+        data = await send_to_orchestrator(
+            session_id, transcript, user_name=message.from_user.first_name
+        )
     except httpx.HTTPError as e:
         logger.error("orchestrator call failed: %s", e)
         await message.answer(t(lang, "error_generic"))

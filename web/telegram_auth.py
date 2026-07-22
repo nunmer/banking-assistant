@@ -53,11 +53,21 @@ def verify_init_data(init_data: str, bot_token: str) -> dict | None:
     return pairs
 
 
-def user_id_from(fields: dict) -> str | None:
-    """Extract the Telegram user id from verified initData fields."""
+def _user_dict(fields: dict) -> dict:
     try:
         user = json.loads(fields.get("user", ""))
     except (json.JSONDecodeError, TypeError):
-        return None
-    uid = user.get("id") if isinstance(user, dict) else None
+        return {}
+    return user if isinstance(user, dict) else {}
+
+
+def user_id_from(fields: dict) -> str | None:
+    """Extract the Telegram user id from verified initData fields."""
+    uid = _user_dict(fields).get("id")
     return str(uid) if uid is not None else None
+
+
+def user_name_from(fields: dict) -> str | None:
+    """Extract the Telegram first name, for personalising a greeting reply."""
+    name = _user_dict(fields).get("first_name")
+    return str(name) if name else None

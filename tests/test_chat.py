@@ -103,6 +103,70 @@ async def test_chat_greeting_gets_friendly_reply_not_unknown(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_greeting_uses_name_when_channel_provides_it(client):
+    """Telegram/Mini App sessions get a personalised greeting."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.98)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+    ):
+        resp = await client.post(
+            "/chat",
+            json={"session_id": "u2e", "text": "Привет", "user_name": "Санжар"},
+        )
+
+    assert resp.status_code == 200
+    from orchestrator.i18n import t
+    assert resp.json()["message"] == t("ru-RU", "greeting_named", name="Санжар")
+    assert "Санжар" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_chat_kazakh_greeting_with_name_is_kazakh_not_english(client):
+    """Regression guard: a kk-KZ greeting must never fall back to English text
+    read aloud by the Kazakh voice — it must use the real kk-KZ template."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.98)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "kk-KZ"})),
+    ):
+        resp = await client.post(
+            "/chat",
+            json={"session_id": "u2f", "text": "Сәлем", "lang": "kk-KZ", "user_name": "Санжар"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["lang"] == "kk-KZ"
+    assert "Санжар" in body["message"]
+    assert "Hello" not in body["message"]  # no English-fallback leakage
+
+
+@pytest.mark.asyncio
+async def test_chat_greeting_without_name_stays_generic(client):
+    """No user_name provided (anonymous browser session) → the plain greeting."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.98)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2g", "text": "Привет"})
+
+    assert resp.status_code == 200
+    from orchestrator.i18n import t
+    assert resp.json()["message"] == t("ru-RU", "greeting")
+
+
+@pytest.mark.asyncio
 async def test_chat_farewell_gets_distinct_reply_from_greeting(client):
     """'Thanks, bye' gets a closing remark, not the 'hello' opener reused."""
     with (

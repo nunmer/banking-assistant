@@ -99,6 +99,31 @@ def test_ws_converse_relays_partials_then_sends_final_reply():
     assert json.loads(upstream.sent[-1]) == {"action": "end"}
 
 
+def test_ws_converse_forwards_user_name_from_first_message():
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [{"type": "final", "text": "привет"}, {"type": "done"}]
+    )
+    fake_connect = _FakeConnect(upstream)
+    _StubClient.responses = [
+        _StubResponse(json_data={"action": "reply", "message": "Привет, Санжар!",
+                                  "speech": None, "lang": "ru-RU"}),
+        _StubResponse(content=b"mp3bytes"),
+    ]
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-3", "user_name": "Санжар"})
+            ws.send_json({"action": "end"})
+            ws.receive_json()
+
+    chat_call = _StubClient.calls[0]
+    assert chat_call["json"]["user_name"] == "Санжар"
+
+
 def test_ws_converse_empty_transcript_short_circuits():
     upstream = _FakeUpstreamConnection([{"type": "done"}])
     fake_connect = _FakeConnect(upstream)

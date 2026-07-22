@@ -110,6 +110,7 @@ def _tts_text(text: str) -> str:
 class ChatIn(BaseModel):
     session_id: str
     text: str
+    user_name: str | None = None
 
 
 class TTSIn(BaseModel):
@@ -135,7 +136,7 @@ async def tg_auth(request: Request, body: TgAuthIn) -> dict:
     uid = telegram_auth.user_id_from(fields)
     if uid is None:
         raise HTTPException(status_code=401, detail="No user in init data")
-    return {"session_id": uid}
+    return {"session_id": uid, "user_name": telegram_auth.user_name_from(fields)}
 
 
 @app.get("/health")
@@ -173,18 +174,20 @@ async def chat(request: Request, body: ChatIn) -> dict:
     _rate_limit(request)
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
+    payload = {"session_id": body.session_id, "text": body.text, "channel": "web"}
+    if body.user_name:
+        payload["user_name"] = body.user_name
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{ORCHESTRATOR_URL}/chat",
-            json={"session_id": body.session_id, "text": body.text, "channel": "web"},
-        )
+        resp = await client.post(f"{ORCHESTRATOR_URL}/chat", json=payload)
     if resp.status_code != 200:
         logger.error("orchestrator failed %s: %s", resp.status_code, resp.text[:300])
         raise HTTPException(status_code=502, detail="Assistant is unavailable")
     return resp.json()
 
 
-async def _run_turn(client: httpx.AsyncClient, session_id: str, user_text: str) -> dict:
+async def _run_turn(
+    client: httpx.AsyncClient, session_id: str, user_text: str, user_name: str | None = None
+) -> dict:
     """Chat → TTS for one already-transcribed utterance.
 
     Shared by the batch `/api/converse` endpoint and the live `/ws/converse`
@@ -192,10 +195,10 @@ async def _run_turn(client: httpx.AsyncClient, session_id: str, user_text: str) 
     text, they just get that text via different paths (one STT call vs.
     live partial/final events).
     """
-    chat_resp = await client.post(
-        f"{ORCHESTRATOR_URL}/chat",
-        json={"session_id": session_id, "text": user_text, "channel": "web"},
-    )
+    payload = {"session_id": session_id, "text": user_text, "channel": "web"}
+    if user_name:
+        payload["user_name"] = user_name
+    chat_resp = await client.post(f"{ORCHESTRATOR_URL}/chat", json=payload)
     if chat_resp.status_code != 200:
         logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
         raise HTTPException(status_code=502, detail="Assistant is unavailable")
@@ -237,6 +240,7 @@ async def converse(
     session_id: str = Form(...),
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
+    user_name: str | None = Form(None),
 ) -> dict:
     """One-round-trip voice turn: STT → chat → TTS, all server-side.
 
@@ -280,7 +284,7 @@ async def converse(
         if not user_text:
             raise HTTPException(status_code=400, detail="No audio or text given")
 
-        result = await _run_turn(client, session_id, user_text)
+        result = await _run_turn(client, session_id, user_text, user_name)
 
     return {"transcript": transcript, **result}
 
@@ -293,7 +297,10 @@ async def ws_converse(websocket: WebSocket) -> None:
     Yandex) but no Yandex credentials ever leave speechkit.
 
     Protocol with the browser:
-      1. Connect, then send {"session_id": ..., "lang": "ru-RU,kk-KZ"}.
+      1. Connect, then send {"session_id": ..., "lang": "ru-RU,kk-KZ",
+         "user_name": ...}. `user_name` is only present inside Telegram
+         (Mini App) and personalises a greeting reply; omitted for an
+         anonymous browser session.
       2. Send binary PCM16LE mono @ 16kHz frames as they're captured.
       3. Send {"action": "end"} on mic release.
       4. Server sends {"type": "partial", "text": ...} live as speech is
@@ -308,6 +315,7 @@ async def ws_converse(websocket: WebSocket) -> None:
         return
     session_id = first.get("session_id") or ""
     lang = first.get("lang") or STT_LANGS
+    user_name = first.get("user_name") or None
 
     final_text = ""
 
@@ -362,7 +370,7 @@ async def ws_converse(websocket: WebSocket) -> None:
             return
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            result = await _run_turn(client, session_id, final_text.strip())
+            result = await _run_turn(client, session_id, final_text.strip(), user_name)
         await websocket.send_json({"type": "reply", **result})
     except WebSocketDisconnect:
         pass

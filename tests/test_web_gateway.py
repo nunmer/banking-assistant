@@ -79,6 +79,23 @@ async def test_chat_proxies_to_orchestrator(client):
     assert _StubClient.last_call["url"].endswith("/chat")
     assert _StubClient.last_call["json"]["session_id"] == "web-1"
     assert _StubClient.last_call["json"]["channel"] == "web"  # history attribution
+    assert "user_name" not in _StubClient.last_call["json"]  # none given → omitted
+
+
+@pytest.mark.asyncio
+async def test_chat_forwards_user_name_when_given(client):
+    """Mini App sessions pass the Telegram first name for a personalised greeting."""
+    _StubClient.response = _StubResponse(
+        json_data={"action": "reply", "message": "Привет, Санжар!",
+                    "speech": None, "lang": "ru-RU"}
+    )
+    with patch.object(gateway.httpx, "AsyncClient", _StubClient):
+        resp = await client.post(
+            "/api/chat",
+            json={"session_id": "web-1b", "text": "привет", "user_name": "Санжар"},
+        )
+    assert resp.status_code == 200
+    assert _StubClient.last_call["json"]["user_name"] == "Санжар"
 
 
 @pytest.mark.asyncio
@@ -175,10 +192,11 @@ async def test_tg_auth_returns_verified_session(client):
     with (
         patch.object(gateway.telegram_auth, "verify_init_data", return_value={"user": "..."}),
         patch.object(gateway.telegram_auth, "user_id_from", return_value="42"),
+        patch.object(gateway.telegram_auth, "user_name_from", return_value="Sanzhar"),
     ):
         resp = await client.post("/api/tg-auth", json={"init_data": "signed-blob"})
     assert resp.status_code == 200
-    assert resp.json() == {"session_id": "42"}
+    assert resp.json() == {"session_id": "42", "user_name": "Sanzhar"}
 
 
 @pytest.mark.asyncio
@@ -235,6 +253,22 @@ async def test_converse_text_turn_returns_audio(client):
     # The operation record must survive the gateway — the client's history
     # card is rendered from it (dropping it wiped confirmations without trace).
     assert body["operation"] == operation
+
+
+@pytest.mark.asyncio
+async def test_converse_forwards_user_name_to_chat(client):
+    _StubClient.responses = [
+        _StubResponse(json_data={"action": "reply", "message": "Привет, Санжар!",
+                                 "speech": None, "lang": "ru-RU"}),
+        _StubResponse(content=b"okbytes"),
+    ]
+    with patch.object(gateway.httpx, "AsyncClient", _StubClient):
+        await client.post(
+            "/api/converse",
+            data={"session_id": "u-conv3", "text": "привет", "user_name": "Санжар"},
+        )
+    chat_call = _StubClient.calls[0]
+    assert chat_call["json"]["user_name"] == "Санжар"
 
 
 @pytest.mark.asyncio

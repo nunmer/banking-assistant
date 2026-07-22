@@ -91,6 +91,116 @@ body {
 
 .status.active { color: var(--magenta-soft); }
 
+/* ── Vaporizing reply caption — voice answers surface as short phrases
+   that materialise out of the sphere and dissolve into it as the next one
+   arrives, instead of one long wall of text. ───────────────────────────── */
+
+.caption {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  transform: translate(-50%, -50%);
+  width: min(88vw, 400px);
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+  min-height: 1.6em;
+  padding: 0 10px;
+}
+
+.caption-block {
+  position: relative;
+  display: inline-block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #fff;
+  text-shadow:
+    0 0 12px rgba(238, 45, 139, 0.8),
+    0 0 28px rgba(238, 45, 139, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  animation: caption-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.15) both;
+  will-change: opacity, filter, transform;
+}
+
+.caption-block.leaving {
+  animation: caption-vaporize 0.65s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* Two faint trailing copies of the same text, staggered, drifting up and
+   apart — reads as wisps of vapor rather than a single object shrinking. */
+.caption-block.leaving::before,
+.caption-block.leaving::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  color: var(--magenta-soft);
+  opacity: 0;
+}
+
+.caption-block.leaving::before {
+  animation: caption-ghost 0.65s ease-out forwards;
+  animation-delay: 0.03s;
+}
+
+.caption-block.leaving::after {
+  animation: caption-ghost 0.72s ease-out forwards;
+  animation-delay: 0.1s;
+}
+
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: scale(0.82) translateY(14px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes caption-vaporize {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1) translateY(0);
+    letter-spacing: normal;
+  }
+  100% {
+    opacity: 0;
+    filter: blur(11px);
+    transform: scale(1.22) translateY(-22px);
+    letter-spacing: 0.12em;
+  }
+}
+
+@keyframes caption-ghost {
+  0% {
+    opacity: 0.4;
+    filter: blur(2px);
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(16px);
+    transform: translateY(-30px) scale(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caption-block,
+  .caption-block.leaving,
+  .caption-block.leaving::before,
+  .caption-block.leaving::after {
+    animation: none;
+  }
+  .caption-block.leaving { opacity: 0; }
+}
+
 /* ── Chat log ────────────────────────────────────────────────────────── */
 
 .chat {

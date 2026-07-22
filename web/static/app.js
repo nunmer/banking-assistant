@@ -10,9 +10,12 @@
  * Typed text always goes through POST /api/chat → {action, message, speech, lang}.
  *
  * Modality follows the user: a spoken request gets a spoken answer (no chat
- * bubbles), a typed request gets a text answer. The one exception is an
- * operation confirmation — its message + Да/Нет buttons are always shown, in
- * both modalities, so the user can see exactly what they are approving.
+ * bubbles) — instead, the reply materialises near the sphere as a few words
+ * at a time, each block dissolving as the next arrives, timed to the audio's
+ * own duration (see "Vaporizing reply caption"). A typed request gets a text
+ * answer. The one exception is an operation confirmation — its message +
+ * Да/Нет buttons are always shown, in both modalities, so the user can see
+ * exactly what they are approving.
  *
  * Playback goes through an AudioContext buffer source (not an <audio> tag):
  * the context is unlocked by the mic-tap gesture, so playback can start after
@@ -221,12 +224,79 @@
       currentSource = null;
     }
     stopLevel();
+    clearCaption();
   }
 
   function newTurn() {
     turn += 1;
     stopSpeaking();
     return turn;
+  }
+
+  // ── Vaporizing reply caption ─────────────────────────────────────────────
+  // A voice reply materialises out of the sphere as a few words at a time —
+  // each block dissolves into vapor as the next one arrives — instead of one
+  // long sentence the user has to read while also trying to listen. Timed to
+  // the reply's own audio duration so the last block clears around when the
+  // voice stops talking.
+
+  const captionEl = document.getElementById("caption");
+  let captionTimer = null;
+
+  function splitIntoBlocks(text) {
+    // Prefer natural pauses (sentence/clause punctuation); anything still
+    // longer than a few words gets folded into shorter chunks so nothing
+    // sits on screen too long to feel "live".
+    const MAX_WORDS = 5;
+    const clauses = text.match(/[^.!?,;:—]+[.!?,;:—]?/g) || [text];
+    const blocks = [];
+    for (const clause of clauses) {
+      const words = clause.trim().split(/\s+/).filter(Boolean);
+      for (let i = 0; i < words.length; i += MAX_WORDS) {
+        blocks.push(words.slice(i, i + MAX_WORDS).join(" "));
+      }
+    }
+    return blocks.length ? blocks : [text.trim()];
+  }
+
+  function vaporizeCurrentBlock() {
+    const current = captionEl.querySelector(".caption-block:not(.leaving)");
+    if (!current) return;
+    current.classList.add("leaving");
+    current.addEventListener("animationend", () => current.remove(), { once: true });
+  }
+
+  function showCaptionBlock(text) {
+    vaporizeCurrentBlock();
+    const el = document.createElement("span");
+    el.className = "caption-block";
+    el.textContent = text;
+    el.dataset.text = text; // mirrored by the ::before/::after vapor trails
+    captionEl.appendChild(el);
+  }
+
+  function clearCaption() {
+    if (captionTimer) {
+      clearTimeout(captionTimer);
+      captionTimer = null;
+    }
+    captionEl.innerHTML = "";
+  }
+
+  function playCaption(text, totalMs) {
+    const blocks = splitIntoBlocks(text);
+    const perBlock = Math.max(900, totalMs / blocks.length);
+    let i = 0;
+    const step = () => {
+      if (i >= blocks.length) {
+        captionTimer = setTimeout(vaporizeCurrentBlock, 350);
+        return;
+      }
+      showCaptionBlock(blocks[i]);
+      i += 1;
+      captionTimer = setTimeout(step, perBlock);
+    };
+    step();
   }
 
   // ── Recording ──────────────────────────────────────────────────────────
@@ -505,7 +575,13 @@
         if (confirming) confirmButtons(voice, el);
       }
 
-      if (voice && data.audio) await playBase64(data.audio, myTurn);
+      if (voice && data.audio) {
+        // Non-confirmation replies get the vaporizing caption instead of a
+        // static bubble — something to watch while the answer is spoken,
+        // instead of silence during the wait.
+        const captionText = !confirming && !data.operation ? data.message : null;
+        await playBase64(data.audio, myTurn, captionText);
+      }
       // TTS failed and nothing is on screen yet → fall back to text.
       else if (voice && data.message && !confirming && !data.operation)
         bubble(data.message, "bot");
@@ -519,7 +595,7 @@
     }
   }
 
-  async function playBase64(b64, myTurn = turn) {
+  async function playBase64(b64, myTurn = turn, captionText = null) {
     // A newer user action started while this reply was in flight → stay silent.
     if (myTurn !== turn) return;
     try {
@@ -530,7 +606,7 @@
       const ctx = ensureAudioCtx();
       const buffer = await ctx.decodeAudioData(bytes.buffer);
       if (myTurn !== turn) return; // interrupted during decode
-      stopSpeaking(); // safety net: never two sources at once
+      stopSpeaking(); // safety net: never two sources at once (also clears any caption)
 
       const src = ctx.createBufferSource();
       src.buffer = buffer;
@@ -543,6 +619,7 @@
       Sphere.setMode("speaking");
       setStatus("speaking", true);
       trackLevel(analyser);
+      if (captionText) playCaption(captionText, buffer.duration * 1000);
 
       await new Promise((resolve) => {
         src.onended = resolve; // fires on natural end AND on .stop()
@@ -550,9 +627,11 @@
       });
       if (currentSource === src) currentSource = null;
       stopLevel();
+      clearCaption();
     } catch (err) {
       console.error("tts playback:", err);
       stopLevel();
+      clearCaption();
     }
   }
 

@@ -45,6 +45,15 @@ def _speech_or_none(message: str, candidate: str) -> str | None:
     return candidate if candidate and candidate != message else None
 
 
+def _reply(lang: str, key: str) -> ChatResponse:
+    """A terminal `t(lang, key)` reply, with its speech variant attached."""
+    msg = t(lang, key)
+    return ChatResponse(
+        action="reply", message=msg,
+        speech=_speech_or_none(msg, i18n_speech(lang, key)), lang=lang,
+    )
+
+
 async def _record_operation(
     req, pending: dict, result, result_message: str, lang: str
 ) -> dict:
@@ -96,11 +105,7 @@ async def _advance(
     sc = await scenario.get(intent)
     if sc is None:
         await slotfill.clear(session_id)
-        msg = t(lang, "no_scenario")
-        return ChatResponse(
-            action="reply", message=msg,
-            speech=_speech_or_none(msg, i18n_speech(lang, "no_scenario")), lang=lang,
-        )
+        return _reply(lang, "no_scenario")
 
     # Merge session context (e.g. account_id) as a fallback for missing params.
     params = dict(params)
@@ -206,11 +211,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             )
         if decision == "no":
             await confirm.clear_pending(req.session_id)
-            msg = t(lang, "cancelled")
-            return ChatResponse(
-                action="reply", message=msg,
-                speech=_speech_or_none(msg, i18n_speech(lang, "cancelled")), lang=lang,
-            )
+            return _reply(lang, "cancelled")
         # Not a yes/no — fall through and treat it as a brand-new request.
 
     # 2. If a parameter collection is in progress, treat this as the answer.
@@ -219,11 +220,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         # An explicit "no"/"cancel" abandons the collection.
         if affirm.classify_reply(req.text) == "no":
             await slotfill.clear(req.session_id)
-            msg = t(lang, "cancelled")
-            return ChatResponse(
-                action="reply", message=msg,
-                speech=_speech_or_none(msg, i18n_speech(lang, "cancelled")), lang=lang,
-            )
+            return _reply(lang, "cancelled")
 
         asked = sf["missing"][0]
         value = await llm.extract_param(req.text, sf["intent"], asked, lang)
@@ -233,9 +230,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
         # Couldn't read the asked slot as a bare answer. Reclassify to catch a
         # full restatement of this intent, or a switch to a different one.
+        # Small talk ("thanks", "hi") isn't a real intent switch either — it
+        # falls through to re-asking the same slot, same as "unknown".
         intent_result = await llm.classify(req.text, req.session_id)
         if (
-            intent_result.intent not in ("unknown", "")
+            intent_result.intent not in ("unknown", "", "greeting")
             and intent_result.confidence >= settings.MIN_CONFIDENCE
         ):
             lang = await _detect_lang(req.session_id, lang, intent_result.lang)
@@ -266,15 +265,14 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.confidence,
     )
 
+    if intent_result.intent == "greeting":
+        return _reply(lang, "greeting")
+
     if (
         intent_result.intent in ("unknown", "")
         or intent_result.confidence < settings.MIN_CONFIDENCE
     ):
-        msg = t(lang, "unknown_intent")
-        return ChatResponse(
-            action="reply", message=msg,
-            speech=_speech_or_none(msg, i18n_speech(lang, "unknown_intent")), lang=lang,
-        )
+        return _reply(lang, "unknown_intent")
 
     return await _advance(
         req.session_id, user_session, intent_result.intent,

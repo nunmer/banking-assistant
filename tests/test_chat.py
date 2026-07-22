@@ -81,6 +81,52 @@ async def test_chat_unknown_intent_returns_reply(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_greeting_gets_friendly_reply_not_unknown(client):
+    """A bare 'hello' must not trigger the 'I didn't understand' capability dump."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.98)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2b", "text": "hello"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"
+    assert "help" in body["message"].lower()
+    assert "didn't quite catch" not in body["message"]
+    scenario_get.assert_not_awaited()  # greeting never reaches scenario lookup
+
+
+@pytest.mark.asyncio
+async def test_slotfill_greeting_does_not_derail_collection(client):
+    """Small talk mid-collection re-asks the same slot instead of erroring out."""
+    sf = {"intent": "deposit_open", "params": {"amount": "100000"},
+          "missing": ["term"], "lang": "en-US"}
+    with (
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.slotfill.get", new=AsyncMock(return_value=sf)),
+        patch("orchestrator.services.llm.extract_param", new=AsyncMock(return_value=None)),
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.97)),
+        ),
+        patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2c", "text": "thanks!"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "collect"  # still waiting on term, not switched away
+    scenario_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_chat_low_confidence_returns_reply(client):
     with (
         patch(

@@ -45,7 +45,7 @@ Schema:
 
 Available intents: transfer, transfer_own, transfer_phone, balance, payment,
 statement, statement_pdf, deposit_open, card_block, card_unblock, card_limit,
-certificate, navigation, manager, unknown
+certificate, navigation, manager, greeting, unknown
 
 Choosing between similar intents:
 - transfer        — to an external account/IBAN the user names ("на счёт KZ123").
@@ -56,13 +56,19 @@ Choosing between similar intents:
 - statement_pdf   — a statement document for a period ("выписку за месяц").
 - navigation      — how-to / where-is questions (ATM, branch, app steps).
 - manager         — the user asks to talk to a human/manager.
+- greeting        — a pure greeting, thanks, farewell, or small talk with no
+                    banking request at all ("hello", "привет", "сәлем",
+                    "спасибо", "как дела", "bye"). High confidence — this is a
+                    normal, expected message, not a misunderstanding.
 
 Important: if the user clearly names an operation but leaves out details
 (amount, account, card, phone, term, …), STILL return that intent with high
 confidence and whatever parameters are present (possibly none) — the missing
 details are collected in a follow-up question. A bare "I want to transfer money"
 or "хочу открыть депозит" is a confident intent, not "unknown". Use "unknown"
-only when the message is not a banking request at all.
+only when the message is neither a banking request nor small talk (e.g. "play
+music", a question about the weather) — greetings and pleasantries are
+"greeting", not "unknown".
 
 Parameter rules:
 - amount: numeric string (digits only, no currency symbols)
@@ -79,7 +85,8 @@ Parameter rules:
     they name a person instead of a number (a contact name, "маме", "to my son"),
     leave phone unset — transfer by contact name is not supported yet, so the
     number still has to be collected. Never put a name in the phone field.
-- term: deposit term in months (digits only).
+- term: deposit term in months, digits only. Convert spelled-out numbers and
+    other units to months ("a year"/"жыл" → 12, "half a year"/"полгода" → 6).
 - card_last4: the last 4 digits of a card.
 - card_kind: card type/name if named (gold, platinum, salary, …); optional.
 - limit_kind: "daily" or "monthly".
@@ -162,6 +169,15 @@ Response: {"intent": "manager", "params": {}, "confidence": 0.96}
 
 User: "Play music"
 Response: {"intent": "unknown", "params": {}, "confidence": 0.95}
+
+User: "Привет!"
+Response: {"intent": "greeting", "params": {}, "confidence": 0.98, "lang": "ru-RU"}
+
+User: "Сәлем, қалайсың?"
+Response: {"intent": "greeting", "params": {}, "confidence": 0.97, "lang": "kk-KZ"}
+
+User: "Thanks a lot, bye!"
+Response: {"intent": "greeting", "params": {}, "confidence": 0.97, "lang": "en-US"}
 """.strip()
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -195,7 +211,11 @@ The user is performing intent "{intent}" and was just asked to provide "{param}"
 Extract ONLY the value of "{param}" from their reply.
 
 Rules for the value:
-- amount / limit: digits only, no currency symbols or words.
+- Numeric parameters (amount, limit, limit_amount, term, card_last4): return
+  digits only — no currency symbols, unit words, or spaces. Convert spelled-out
+  numbers to digits ("шесть" → 6). If the parameter is a duration in a specific
+  unit (term is months), convert other phrasings to that unit — "a year"/"жыл"
+  → 12, "half a year"/"полгода" → 6, "two years" → 24.
 - currency: ISO 4217 code (KZT, USD, EUR, RUB). "тенге/теңге"→KZT, "доллар"→USD, "евро"→EUR.
 - to_account / bill_id: the identifier exactly as given.
 - phone: an actual phone number (digits). If the reply is a person's name rather

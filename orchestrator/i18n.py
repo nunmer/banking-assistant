@@ -21,6 +21,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация и связь с менеджером\n\n"
             "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
+        "greeting": "Рад помочь! Дайте знать, если что-то понадобится.",
         "no_scenario": "Извините, с этим пока не могу помочь.",
         "accounts_unavailable": "Не получилось загрузить ваши счета. Попробуйте, пожалуйста, чуть позже.",
         "no_account_kind": "Не нашёл у вас счёта в валюте {kind}. Ваши счета: {available}.",
@@ -65,6 +66,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Navigation and reaching a manager\n\n"
             "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
         ),
+        "greeting": "Glad to help! Let me know if you need anything.",
         "no_scenario": "Sorry, I can't help with that yet.",
         "accounts_unavailable": "I couldn't load your accounts. Please try again a little later.",
         "no_account_kind": "You don't have a {kind} account. Your accounts: {available}.",

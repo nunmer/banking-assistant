@@ -48,12 +48,22 @@ class TestSystemPrompt:
     NEW_INTENTS = [
         "transfer_own", "transfer_phone", "deposit_open", "card_block",
         "card_unblock", "card_limit", "statement_pdf", "certificate",
-        "navigation", "manager",
+        "navigation", "manager", "greeting",
     ]
 
     def test_all_new_intents_documented(self):
         for intent in self.NEW_INTENTS:
             assert intent in llm.SYSTEM_PROMPT, f"{intent} missing from SYSTEM_PROMPT"
+
+
+class TestExtractPromptRules:
+    def test_numeric_params_get_unit_conversion_guidance(self):
+        # Regression guard for the deposit-term bug: a follow-up reply like
+        # "6 месяцев"/"half a year" must extract to a bare digit, not a
+        # literal string with words attached that then fails validation.
+        assert "term" in llm._EXTRACT_PROMPT
+        assert "spelled-out" in llm._EXTRACT_PROMPT
+        assert "half a year" in llm._EXTRACT_PROMPT
 
 
 class TestClassifyLang:

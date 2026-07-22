@@ -21,7 +21,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация и связь с менеджером\n\n"
             "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
-        "greeting": "Рад помочь! Дайте знать, если что-то понадобится.",
+        "greeting": "Здравствуйте! Чем могу помочь?",
+        "farewell": "Рад был помочь! Обращайтесь, если что-то понадобится.",
         "no_scenario": "Извините, с этим пока не могу помочь.",
         "accounts_unavailable": "Не получилось загрузить ваши счета. Попробуйте, пожалуйста, чуть позже.",
         "no_account_kind": "Не нашёл у вас счёта в валюте {kind}. Ваши счета: {available}.",
@@ -44,6 +45,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация және менеджермен байланыс\n\n"
             "Не керегін жазыңыз немесе айтыңыз — мысалы «+7 701 … нөміріне 5000 теңге аудар»."
         ),
+        "farewell": "Көмектескеніме қуаныштымын! Қажет болса, айта беріңіз.",
         "no_scenario": "Кешіріңіз, бұған әзірге көмектесе алмаймын.",
         "accounts_unavailable": "Шоттарыңызды жүктеу мүмкін болмады. Сәл кейінірек қайталап көріңіз.",
         "no_account_kind": "{kind} валютасында шотыңыз табылмады. Сіздің шоттарыңыз: {available}.",
@@ -66,7 +68,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Navigation and reaching a manager\n\n"
             "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
         ),
-        "greeting": "Glad to help! Let me know if you need anything.",
+        "greeting": "Hello! How can I help you today?",
+        "farewell": "Glad I could help! Feel free to reach out again if you need anything.",
         "no_scenario": "Sorry, I can't help with that yet.",
         "accounts_unavailable": "I couldn't load your accounts. Please try again a little later.",
         "no_account_kind": "You don't have a {kind} account. Your accounts: {available}.",

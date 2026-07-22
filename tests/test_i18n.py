@@ -34,6 +34,12 @@ class TestI18nHelper:
         msg = t("en-US", "unknown_intent")
         assert "help with" in msg and "Transfers" in msg
 
+    @pytest.mark.parametrize("lang", ["ru-RU", "en-US"])
+    def test_greeting_and_farewell_are_distinct(self, lang):
+        # "hello" and "thanks, bye" must not get the same canned reply — a
+        # closing remark read back in response to an opener sounds wrong.
+        assert t(lang, "greeting") != t(lang, "farewell")
+
     def test_missing_params_interpolation(self):
         msg = t("en-US", "missing_params", params="currency, to_account")
         assert "currency" in msg

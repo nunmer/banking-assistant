@@ -45,7 +45,7 @@ Schema:
 
 Available intents: transfer, transfer_own, transfer_phone, balance, payment,
 statement, statement_pdf, deposit_open, card_block, card_unblock, card_limit,
-certificate, navigation, manager, greeting, unknown
+certificate, navigation, manager, greeting, farewell, unknown
 
 Choosing between similar intents:
 - transfer        — to an external account/IBAN the user names ("на счёт KZ123").
@@ -56,10 +56,12 @@ Choosing between similar intents:
 - statement_pdf   — a statement document for a period ("выписку за месяц").
 - navigation      — how-to / where-is questions (ATM, branch, app steps).
 - manager         — the user asks to talk to a human/manager.
-- greeting        — a pure greeting, thanks, farewell, or small talk with no
-                    banking request at all ("hello", "привет", "сәлем",
-                    "спасибо", "как дела", "bye"). High confidence — this is a
-                    normal, expected message, not a misunderstanding.
+- greeting        — an opening greeting or small talk with no banking request
+                    at all ("hello", "привет", "сәлем", "как дела"). High
+                    confidence — this is a normal, expected message, not a
+                    misunderstanding.
+- farewell        — thanks and/or goodbye, with no further request ("thanks",
+                    "спасибо", "bye", "пока", "рахмет"). Also high confidence.
 
 Important: if the user clearly names an operation but leaves out details
 (amount, account, card, phone, term, …), STILL return that intent with high
@@ -67,8 +69,8 @@ confidence and whatever parameters are present (possibly none) — the missing
 details are collected in a follow-up question. A bare "I want to transfer money"
 or "хочу открыть депозит" is a confident intent, not "unknown". Use "unknown"
 only when the message is neither a banking request nor small talk (e.g. "play
-music", a question about the weather) — greetings and pleasantries are
-"greeting", not "unknown".
+music", a question about the weather) — greetings, thanks, and goodbyes are
+"greeting"/"farewell", not "unknown".
 
 Parameter rules:
 - amount: numeric string (digits only, no currency symbols)
@@ -177,7 +179,10 @@ User: "Сәлем, қалайсың?"
 Response: {"intent": "greeting", "params": {}, "confidence": 0.97, "lang": "kk-KZ"}
 
 User: "Thanks a lot, bye!"
-Response: {"intent": "greeting", "params": {}, "confidence": 0.97, "lang": "en-US"}
+Response: {"intent": "farewell", "params": {}, "confidence": 0.97, "lang": "en-US"}
+
+User: "Спасибо большое!"
+Response: {"intent": "farewell", "params": {}, "confidence": 0.96, "lang": "ru-RU"}
 """.strip()
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)

@@ -103,6 +103,29 @@ async def test_chat_greeting_gets_friendly_reply_not_unknown(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_farewell_gets_distinct_reply_from_greeting(client):
+    """'Thanks, bye' gets a closing remark, not the 'hello' opener reused."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="farewell", params={}, confidence=0.97)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2d", "text": "thanks, bye"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"
+    from orchestrator.i18n import t
+    assert body["message"] == t("en-US", "farewell")
+    assert body["message"] != t("en-US", "greeting")
+    scenario_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_slotfill_greeting_does_not_derail_collection(client):
     """Small talk mid-collection re-asks the same slot instead of erroring out."""
     sf = {"intent": "deposit_open", "params": {"amount": "100000"},
@@ -114,7 +137,7 @@ async def test_slotfill_greeting_does_not_derail_collection(client):
         patch("orchestrator.services.llm.extract_param", new=AsyncMock(return_value=None)),
         patch(
             "orchestrator.services.llm.classify",
-            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.97)),
+            new=AsyncMock(return_value=IntentResult(intent="farewell", params={}, confidence=0.97)),
         ),
         patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
     ):

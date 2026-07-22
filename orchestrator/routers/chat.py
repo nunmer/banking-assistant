@@ -39,6 +39,10 @@ logger = logging.getLogger("orchestrator.chat")
 
 router = APIRouter()
 
+# Small talk has no scenario/DB entry and no parameters to collect — it's
+# handled as an immediate reply and never counts as a real intent switch.
+_SMALL_TALK = ("greeting", "farewell")
+
 
 def _speech_or_none(message: str, candidate: str) -> str | None:
     """Omit a TTS variant identical to the display message — nothing to add."""
@@ -234,7 +238,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         # falls through to re-asking the same slot, same as "unknown".
         intent_result = await llm.classify(req.text, req.session_id)
         if (
-            intent_result.intent not in ("unknown", "", "greeting")
+            intent_result.intent not in ("unknown", "", *_SMALL_TALK)
             and intent_result.confidence >= settings.MIN_CONFIDENCE
         ):
             lang = await _detect_lang(req.session_id, lang, intent_result.lang)
@@ -265,8 +269,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.confidence,
     )
 
-    if intent_result.intent == "greeting":
-        return _reply(lang, "greeting")
+    if intent_result.intent in _SMALL_TALK:
+        return _reply(lang, intent_result.intent)
 
     if (
         intent_result.intent in ("unknown", "")

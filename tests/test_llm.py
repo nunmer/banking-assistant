@@ -48,7 +48,7 @@ class TestSystemPrompt:
     NEW_INTENTS = [
         "transfer_own", "transfer_phone", "deposit_open", "card_block",
         "card_unblock", "card_limit", "statement_pdf", "certificate",
-        "navigation", "manager", "greeting",
+        "navigation", "manager", "greeting", "farewell",
     ]
 
     def test_all_new_intents_documented(self):

@@ -1,9 +1,13 @@
 /* Forte Voice web client.
  *
- * Flow (same contract as the Telegram bot):
- *   mic tap → record → POST /api/stt → transcript
- *   transcript (or typed text) → POST /api/chat → {action, message, speech, lang}
- *   voice reply → POST /api/tts → MP3 → Web Audio playback
+ * Voice flow: mic tap opens a live WebSocket (/ws/converse) and streams PCM
+ * audio as it's captured; partial captions appear while the user is still
+ * talking, and a final {message, audio, action, operation} reply arrives once
+ * the utterance is recognised — chat+TTS run the same way as before, just
+ * triggered by a live transcript instead of a recorded-then-uploaded blob.
+ * Where WebSocket audio capture isn't available, it falls back to the older
+ * record-a-blob-then-upload flow (POST /api/converse) with the same result.
+ * Typed text always goes through POST /api/chat → {action, message, speech, lang}.
  *
  * Modality follows the user: a spoken request gets a spoken answer (no chat
  * bubbles), a typed request gets a text answer. The one exception is an
@@ -12,7 +16,7 @@
  *
  * Playback goes through an AudioContext buffer source (not an <audio> tag):
  * the context is unlocked by the mic-tap gesture, so playback can start after
- * the multi-second STT→chat→TTS chain without tripping autoplay policies.
+ * the multi-second recognition→chat→TTS chain without tripping autoplay policies.
  */
 (function () {
   "use strict";
@@ -220,10 +224,104 @@
   }
 
   // ── Recording ──────────────────────────────────────────────────────────
+  // Two capture paths share one `recording` flag and one mic-tap gesture:
+  //   - streaming (default): PCM over a live WebSocket, partial captions
+  //     appear while the user is still talking (see startStreamingCapture).
+  //   - blob (fallback): the older record-then-upload flow, used only if a
+  //     WebSocket/ScriptProcessor can't be set up.
 
-  let recorder = null;
+  let recording = false;
   let recStream = null;
   let micSource = null;
+  let ws = null;
+  let pcmProcessor = null;
+  let recorder = null; // MediaRecorder — fallback path only
+
+  const TARGET_RATE = 16000; // PCM rate the streaming STT endpoint expects
+
+  function resampleTo16k(float32, inputRate) {
+    if (inputRate === TARGET_RATE) return float32;
+    const ratio = inputRate / TARGET_RATE;
+    const outLength = Math.floor(float32.length / ratio);
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = i * ratio;
+      const idx0 = Math.floor(srcPos);
+      const idx1 = Math.min(idx0 + 1, float32.length - 1);
+      const frac = srcPos - idx0;
+      out[i] = float32[idx0] * (1 - frac) + float32[idx1] * frac;
+    }
+    return out;
+  }
+
+  function floatTo16BitPCM(input) {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      const s = Math.max(-1, Math.min(1, input[i]));
+      output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return output;
+  }
+
+  function startStreamingCapture(ctx, stream, myTurn) {
+    if (!window.WebSocket) return false;
+    let processor;
+    try {
+      processor = ctx.createScriptProcessor(4096, 1, 1);
+    } catch {
+      return false; // e.g. an AudioContext that refuses ScriptProcessorNode
+    }
+
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${proto}://${location.host}/ws/converse`);
+    socket.binaryType = "arraybuffer";
+    let liveBubble = null;
+
+    const finish = () => {
+      if (liveBubble) { liveBubble.remove(); liveBubble = null; }
+      micBtn.disabled = false;
+    };
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ session_id: sessionId }));
+      micSource.connect(processor);
+      // ScriptProcessorNode only fires onaudioprocess while connected into the
+      // graph toward the destination — route through a silent gain node so
+      // the raw mic input is never actually heard.
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      processor.connect(mute);
+      mute.connect(ctx.destination);
+      processor.onaudioprocess = (e) => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = floatTo16BitPCM(resampleTo16k(input, ctx.sampleRate));
+        socket.send(pcm.buffer);
+      };
+    };
+
+    socket.onmessage = (evt) => {
+      let data;
+      try { data = JSON.parse(evt.data); } catch { return; }
+      if (data.type === "partial") {
+        if (!liveBubble) liveBubble = bubble(data.text, "bot live");
+        else liveBubble.textContent = data.text;
+        chatEl.scrollTop = chatEl.scrollHeight;
+      } else if (data.type === "reply") {
+        finish();
+        applyReply(data, { voice: true, myTurn });
+      } else if (data.type === "error") {
+        finish();
+        bubble(t("error"), "bot error");
+        setStatus("idle");
+        Sphere.setMode("idle");
+      }
+    };
+
+    ws = socket;
+    pcmProcessor = processor;
+    return true;
+  }
 
   const MIME_CANDIDATES = [
     "audio/webm;codecs=opus",
@@ -231,6 +329,19 @@
     "audio/mp4",
     "audio/ogg;codecs=opus",
   ];
+
+  function startBlobCapture(stream, myTurn) {
+    const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+    const chunks = [];
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mime || "audio/webm" });
+      if (blob.size > 800) handleRecording(blob, myTurn);
+      else { micBtn.disabled = false; setStatus("idle"); Sphere.setMode("idle"); }
+    };
+    recorder.start();
+  }
 
   async function startRecording() {
     // Tapping the mic while the bot talks is barge-in: cut the audio first.
@@ -243,6 +354,7 @@
       return;
     }
     recStream = stream;
+    recording = true;
 
     const ctx = ensureAudioCtx();
     const analyser = ctx.createAnalyser();
@@ -251,42 +363,58 @@
     micSource.connect(analyser);
     trackLevel(analyser);
 
-    const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) || "";
-    const chunks = [];
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.onstop = () => {
-      recStream.getTracks().forEach((tr) => tr.stop());
-      if (micSource) micSource.disconnect();
-      stopLevel();
-      const blob = new Blob(chunks, { type: mime || "audio/webm" });
-      if (blob.size > 800) handleRecording(blob, myTurn);
-      else { setStatus("idle"); Sphere.setMode("idle"); }
-    };
-    recorder.start();
-
     micBtn.classList.add("recording");
     Sphere.setMode("listening");
     setStatus("listening", true);
+
+    if (!startStreamingCapture(ctx, stream, myTurn)) startBlobCapture(stream, myTurn);
   }
 
   function stopRecording() {
     micBtn.classList.remove("recording");
+    recording = false;
+    Sphere.setMode("thinking");
+    setStatus("thinking", true);
+    micBtn.disabled = true;
+
+    if (micSource) { micSource.disconnect(); micSource = null; }
+    if (recStream) { recStream.getTracks().forEach((tr) => tr.stop()); recStream = null; }
+    stopLevel();
+
+    if (pcmProcessor) {
+      pcmProcessor.onaudioprocess = null;
+      pcmProcessor.disconnect();
+      pcmProcessor = null;
+    }
+    if (ws) {
+      const socket = ws;
+      ws = null;
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: "end" }));
+      } else {
+        // Never actually connected — nothing will send a reply.
+        socket.close();
+        micBtn.disabled = false;
+        setStatus("idle");
+        Sphere.setMode("idle");
+      }
+      return;
+    }
+
     if (recorder && recorder.state !== "inactive") recorder.stop();
     recorder = null;
   }
 
-  micBtn.addEventListener("click", () => {
-    if (recorder) stopRecording();
+  function toggleRecording() {
+    if (recording) stopRecording();
     else startRecording();
-  });
+  }
 
-  // ── Pipeline ───────────────────────────────────────────────────────────
+  micBtn.addEventListener("click", toggleRecording);
+
+  // ── Pipeline (fallback blob-upload path) ────────────────────────────────
 
   async function handleRecording(blob, myTurn) {
-    Sphere.setMode("thinking");
-    setStatus("thinking", true);
-    micBtn.disabled = true;
     try {
       // One round trip: STT → chat → TTS run server-side (like the Telegram
       // bot), instead of the browser paying internet latency between stages.
@@ -425,8 +553,7 @@
   // (startRecording opens a new turn, which stops any current playback).
   document.getElementById("sphere").addEventListener("click", () => {
     if (micBtn.disabled) return; // mid-processing — ignore taps
-    if (recorder) stopRecording();
-    else startRecording();
+    toggleRecording();
   });
 
   // ── Text input ─────────────────────────────────────────────────────────

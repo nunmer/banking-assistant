@@ -134,6 +134,14 @@ body {
 
 .bubble.error { border-color: var(--danger); color: var(--danger); }
 
+/* Live partial transcript while the user is still talking — updates in
+   place as more speech is recognised, so it reads as "still listening". */
+.bubble.bot.live {
+  color: var(--text-dim);
+  font-style: italic;
+  border-style: dashed;
+}
+
 /* Persistent record of an executed operation (synced with Telegram). */
 .bubble.op {
   align-self: stretch;

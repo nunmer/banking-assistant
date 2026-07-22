@@ -9,13 +9,15 @@ Same functionality as the Telegram bot: STT → orchestrator /chat → TTS.
 """
 import asyncio
 import base64
+import json
 import logging
 import os
 import time
 from collections import defaultdict, deque
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+import websockets
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,6 +28,12 @@ logger = logging.getLogger("web.gateway")
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://orchestrator:8000")
 SPEECH_SERVICE_URL = os.getenv("SPEECH_SERVICE_URL", "http://host.docker.internal:8000")
+# Same host as SPEECH_SERVICE_URL, ws(s):// scheme — speechkit's live-STT
+# WebSocket endpoint lives alongside its REST API.
+SPEECH_STREAM_URL = os.getenv(
+    "SPEECH_STREAM_URL",
+    SPEECH_SERVICE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/stt/stream",
+)
 SPEECH_API_KEY = os.getenv("SPEECH_API_KEY", "")
 STT_LANGS = os.getenv("STT_LANGS", "ru-RU,kk-KZ")
 TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "marina")
@@ -176,6 +184,53 @@ async def chat(request: Request, body: ChatIn) -> dict:
     return resp.json()
 
 
+async def _run_turn(client: httpx.AsyncClient, session_id: str, user_text: str) -> dict:
+    """Chat → TTS for one already-transcribed utterance.
+
+    Shared by the batch `/api/converse` endpoint and the live `/ws/converse`
+    streaming route — both need the exact same reply shape once they have
+    text, they just get that text via different paths (one STT call vs.
+    live partial/final events).
+    """
+    chat_resp = await client.post(
+        f"{ORCHESTRATOR_URL}/chat",
+        json={"session_id": session_id, "text": user_text, "channel": "web"},
+    )
+    if chat_resp.status_code != 200:
+        logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
+        raise HTTPException(status_code=502, detail="Assistant is unavailable")
+    data = chat_resp.json()
+
+    # Synthesize the spoken reply; on failure the client falls back to text.
+    audio_b64 = None
+    speak_text = _tts_text(data.get("speech") or data.get("message") or "")
+    if speak_text:
+        tts_resp = await client.post(
+            f"{SPEECH_SERVICE_URL}/tts/synthesize",
+            json={
+                "text": speak_text,
+                "lang": data.get("lang") or "ru-RU",
+                "voice": _voice_for_lang(data.get("lang")),
+                "format": "MP3",
+            },
+            headers=_speech_headers(),
+        )
+        if tts_resp.status_code == 200:
+            audio_b64 = base64.b64encode(tts_resp.content).decode()
+        else:
+            logger.error("TTS failed %s: %s", tts_resp.status_code, tts_resp.text[:300])
+
+    return {
+        "message": data.get("message"),
+        "action": data.get("action"),
+        "lang": data.get("lang"),
+        # Completed-operation record — the client renders its history card
+        # from this; dropping it would wipe the confirmation without a trace.
+        "operation": data.get("operation"),
+        "audio": audio_b64,
+    }
+
+
 @app.post("/api/converse")
 async def converse(
     request: Request,
@@ -191,6 +246,10 @@ async def converse(
     from a voice-mode button) goes up once; the reply text and its MP3 come
     back together. The MP3 is base64 in the JSON — replies are a few seconds
     of speech, so the payload stays small.
+
+    Superseded for live mic input by `/ws/converse` (streaming partial
+    captions); this endpoint remains for text-mode turns and as a fallback
+    where WebSocket/AudioWorklet capture isn't available.
     """
     _rate_limit(request)
 
@@ -221,44 +280,100 @@ async def converse(
         if not user_text:
             raise HTTPException(status_code=400, detail="No audio or text given")
 
-        chat_resp = await client.post(
-            f"{ORCHESTRATOR_URL}/chat",
-            json={"session_id": session_id, "text": user_text, "channel": "web"},
-        )
-        if chat_resp.status_code != 200:
-            logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
-            raise HTTPException(status_code=502, detail="Assistant is unavailable")
-        data = chat_resp.json()
+        result = await _run_turn(client, session_id, user_text)
 
-        # Synthesize the spoken reply; on failure the client falls back to text.
-        audio_b64 = None
-        speak_text = _tts_text(data.get("speech") or data.get("message") or "")
-        if speak_text:
-            tts_resp = await client.post(
-                f"{SPEECH_SERVICE_URL}/tts/synthesize",
-                json={
-                    "text": speak_text,
-                    "lang": data.get("lang") or "ru-RU",
-                    "voice": _voice_for_lang(data.get("lang")),
-                    "format": "MP3",
-                },
-                headers=_speech_headers(),
+    return {"transcript": transcript, **result}
+
+
+@app.websocket("/ws/converse")
+async def ws_converse(websocket: WebSocket) -> None:
+    """Live voice turn: streams mic audio to speechkit for real-time partial
+    captions, then runs the same chat+TTS pipeline as `/api/converse` once
+    the utterance is final — one extra hop (browser -> here -> speechkit ->
+    Yandex) but no Yandex credentials ever leave speechkit.
+
+    Protocol with the browser:
+      1. Connect, then send {"session_id": ..., "lang": "ru-RU,kk-KZ"}.
+      2. Send binary PCM16LE mono @ 16kHz frames as they're captured.
+      3. Send {"action": "end"} on mic release.
+      4. Server sends {"type": "partial", "text": ...} live as speech is
+         recognised, then one {"type": "reply", message, audio, action,
+         operation} once the turn completes — the same shape `/api/converse`
+         returns, so the client applies it the same way.
+    """
+    await websocket.accept()
+    try:
+        first = await websocket.receive_json()
+    except WebSocketDisconnect:
+        return
+    session_id = first.get("session_id") or ""
+    lang = first.get("lang") or STT_LANGS
+
+    final_text = ""
+
+    async def browser_to_upstream(upstream) -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            data = message.get("bytes")
+            if data is not None:
+                await upstream.send(data)
+                continue
+            text = message.get("text")
+            if text is not None:
+                try:
+                    control = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if control.get("action") == "end":
+                    break
+        await upstream.send(json.dumps({"action": "end"}))
+
+    async def upstream_to_browser(upstream) -> None:
+        nonlocal final_text
+        async for raw in upstream:
+            event = json.loads(raw)
+            kind = event.get("type")
+            if kind == "partial":
+                try:
+                    await websocket.send_json(event)
+                except (WebSocketDisconnect, RuntimeError):
+                    return
+            elif kind == "final":
+                final_text = event.get("text") or final_text
+            elif kind in ("done", "error"):
+                return
+
+    try:
+        async with websockets.connect(
+            SPEECH_STREAM_URL, additional_headers=_speech_headers()
+        ) as upstream:
+            await upstream.send(json.dumps({"lang": lang}))
+            await asyncio.gather(
+                browser_to_upstream(upstream), upstream_to_browser(upstream)
             )
-            if tts_resp.status_code == 200:
-                audio_b64 = base64.b64encode(tts_resp.content).decode()
-            else:
-                logger.error("TTS failed %s: %s", tts_resp.status_code, tts_resp.text[:300])
 
-    return {
-        "transcript": transcript,
-        "message": data.get("message"),
-        "action": data.get("action"),
-        "lang": data.get("lang"),
-        # Completed-operation record — the client renders its history card
-        # from this; dropping it would wipe the confirmation without a trace.
-        "operation": data.get("operation"),
-        "audio": audio_b64,
-    }
+        if not final_text.strip():
+            await websocket.send_json(
+                {"type": "reply", "message": None, "audio": None,
+                 "action": None, "operation": None}
+            )
+            return
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            result = await _run_turn(client, session_id, final_text.strip())
+        await websocket.send_json({"type": "reply", **result})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("ws_converse failed: %s", e)
+        try:
+            await websocket.send_json(
+                {"type": "error", "detail": "Assistant is unavailable"}
+            )
+        except Exception:
+            pass
 
 
 @app.post("/api/tts")

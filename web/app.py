@@ -28,9 +28,9 @@ ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://orchestrator:8000")
 SPEECH_SERVICE_URL = os.getenv("SPEECH_SERVICE_URL", "http://host.docker.internal:8000")
 SPEECH_API_KEY = os.getenv("SPEECH_API_KEY", "")
 STT_LANGS = os.getenv("STT_LANGS", "ru-RU,kk-KZ")
-TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "jane")
-TTS_VOICE_KK = os.getenv("TTS_VOICE_KK", "madi")
-TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "jane")
+TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "marina")
+TTS_VOICE_KK = os.getenv("TTS_VOICE_KK", "amira")
+TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "marina")
 # Bot token — used only to verify Telegram Mini App initData signatures.
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 

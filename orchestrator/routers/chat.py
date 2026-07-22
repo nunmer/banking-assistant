@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter
 
 from orchestrator.config import settings
-from orchestrator.i18n import slot_prompt, t
+from orchestrator.i18n import slot_prompt, speech as i18n_speech, strip_for_speech, t
 from orchestrator.models import ChatRequest, ChatResponse
 from orchestrator.services import (
     affirm,
@@ -38,6 +38,11 @@ from orchestrator.services import (
 logger = logging.getLogger("orchestrator.chat")
 
 router = APIRouter()
+
+
+def _speech_or_none(message: str, candidate: str) -> str | None:
+    """Omit a TTS variant identical to the display message — nothing to add."""
+    return candidate if candidate and candidate != message else None
 
 
 async def _record_operation(
@@ -91,7 +96,11 @@ async def _advance(
     sc = await scenario.get(intent)
     if sc is None:
         await slotfill.clear(session_id)
-        return ChatResponse(action="reply", message=t(lang, "no_scenario"), lang=lang)
+        msg = t(lang, "no_scenario")
+        return ChatResponse(
+            action="reply", message=msg,
+            speech=_speech_or_none(msg, i18n_speech(lang, "no_scenario")), lang=lang,
+        )
 
     # Merge session context (e.g. account_id) as a fallback for missing params.
     params = dict(params)
@@ -139,7 +148,10 @@ async def _advance(
     params, err = await enrich.apply(intent, session_id, params, lang)
     if err is not None:
         await slotfill.clear(session_id)
-        return ChatResponse(action="reply", message=err, lang=lang)
+        return ChatResponse(
+            action="reply", message=err,
+            speech=_speech_or_none(err, strip_for_speech(err)), lang=lang,
+        )
 
     # All required params present — set up the confirmation.
     await slotfill.clear(session_id)
@@ -188,11 +200,17 @@ async def chat(req: ChatRequest) -> ChatResponse:
             message = t(lang, key)
             operation = await _record_operation(req, pending, result, message, lang)
             return ChatResponse(
-                action="reply", message=message, lang=lang, operation=operation
+                action="reply", message=message,
+                speech=_speech_or_none(message, i18n_speech(lang, key)),
+                lang=lang, operation=operation,
             )
         if decision == "no":
             await confirm.clear_pending(req.session_id)
-            return ChatResponse(action="reply", message=t(lang, "cancelled"), lang=lang)
+            msg = t(lang, "cancelled")
+            return ChatResponse(
+                action="reply", message=msg,
+                speech=_speech_or_none(msg, i18n_speech(lang, "cancelled")), lang=lang,
+            )
         # Not a yes/no — fall through and treat it as a brand-new request.
 
     # 2. If a parameter collection is in progress, treat this as the answer.
@@ -201,7 +219,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         # An explicit "no"/"cancel" abandons the collection.
         if affirm.classify_reply(req.text) == "no":
             await slotfill.clear(req.session_id)
-            return ChatResponse(action="reply", message=t(lang, "cancelled"), lang=lang)
+            msg = t(lang, "cancelled")
+            return ChatResponse(
+                action="reply", message=msg,
+                speech=_speech_or_none(msg, i18n_speech(lang, "cancelled")), lang=lang,
+            )
 
         asked = sf["missing"][0]
         value = await llm.extract_param(req.text, sf["intent"], asked, lang)
@@ -248,7 +270,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.intent in ("unknown", "")
         or intent_result.confidence < settings.MIN_CONFIDENCE
     ):
-        return ChatResponse(action="reply", message=t(lang, "unknown_intent"), lang=lang)
+        msg = t(lang, "unknown_intent")
+        return ChatResponse(
+            action="reply", message=msg,
+            speech=_speech_or_none(msg, i18n_speech(lang, "unknown_intent")), lang=lang,
+        )
 
     return await _advance(
         req.session_id, user_session, intent_result.intent,

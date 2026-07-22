@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestrator.i18n import _SLOT_PROMPTS, slot_prompt, t
+from orchestrator.i18n import _SLOT_PROMPTS, slot_prompt, speech, strip_for_speech, t
 from orchestrator.models import IntentResult
 
 _TRANSFER_SCENARIO = MagicMock(
@@ -47,6 +47,45 @@ class TestI18nHelper:
         assert "отменил" in t("ru-RU", "cancelled")
         assert "тарт" in t("kk-KZ", "cancelled")
         assert "cancelled" in t("en-US", "cancelled").lower()
+
+
+class TestStripForSpeech:
+    def test_removes_emoji(self):
+        assert strip_for_speech("Готово! Операция выполнена. ✅") == "Готово! Операция выполнена."
+
+    def test_collapses_whitespace_left_by_removed_emoji(self):
+        out = strip_for_speech("Привет 🙂 мир")
+        assert "  " not in out
+        assert out == "Привет мир"
+
+    def test_plain_text_untouched(self):
+        assert strip_for_speech("Ничего не меняется.") == "Ничего не меняется."
+
+
+class TestSpeech:
+    @pytest.mark.parametrize("lang", ["ru-RU", "kk-KZ", "en-US"])
+    def test_unknown_intent_has_dedicated_override(self, lang):
+        # The bulleted capability list is fine on screen but unreadable aloud —
+        # every language must have its own natural-sentence override, never a
+        # borrowed one from another language.
+        override = speech(lang, "unknown_intent")
+        assert override != t(lang, "unknown_intent")
+        assert "\n" not in override
+        assert not any("\U0001F300" <= ch <= "\U0001FAFF" for ch in override)
+
+    def test_falls_back_to_stripped_message_without_override(self):
+        # "cancelled" has no dedicated override — speech() should still be
+        # emoji-free, derived from this language's own message.
+        assert speech("ru-RU", "cancelled") == strip_for_speech(t("ru-RU", "cancelled"))
+        assert "👌" not in speech("ru-RU", "cancelled")
+
+    def test_never_borrows_another_languages_override(self):
+        # kk-KZ speech must never fall back to the ru-RU override text —
+        # an untranslated language should read its own (stripped) message,
+        # not another language's audio.
+        kk = speech("kk-KZ", "unknown_intent")
+        ru = speech("ru-RU", "unknown_intent")
+        assert kk != ru
 
 
 class TestSlotPrompt:
@@ -135,3 +174,8 @@ async def test_chat_russian_returns_russian_error(client):
     body = resp.json()
     assert body["action"] == "reply"
     assert "помочь" in body["message"]  # friendly capability list
+    # The bulleted list is fine to read on screen but not aloud — the response
+    # must carry a distinct, natural-sentence `speech` variant for TTS.
+    assert body["speech"] is not None
+    assert body["speech"] != body["message"]
+    assert "\n" not in body["speech"]

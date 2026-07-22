@@ -46,6 +46,9 @@ async def test_confirm_yes_records_operation_and_returns_it(client):
     assert body["action"] == "reply"
     assert body["operation"]["summary"] == _PENDING["summary"]
     assert body["operation"]["status"] == "success"
+    # Spoken variant drops the trailing emoji a TTS engine would mangle.
+    assert body["speech"] == "Готово! Операция выполнена."
+    assert "✅" not in body["speech"]
     record.assert_awaited_once()
     kwargs = record.await_args.kwargs
     assert kwargs["session_id"] == "111222333"

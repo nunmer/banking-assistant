@@ -5,6 +5,8 @@ Russian is the default — it's the primary language for ForteBank KZ users.
 """
 from __future__ import annotations
 
+import re
+
 DEFAULT_LANG = "ru-RU"
 
 _MESSAGES: dict[str, dict[str, str]] = {
@@ -84,57 +86,125 @@ def t(lang: str, key: str, **kwargs: str) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
+# Emoji/pictographs read fine on screen but make a TTS engine stumble (it either
+# vocalises the symbol's description or drops audio for it) — strip them from
+# anything read aloud that has no dedicated `speech` override below.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"  # regional indicators
+    "\U0001F300-\U0001FAFF"  # symbols, pictographs, emoticons, supplemental
+    "\U00002600-\U000027BF"  # misc symbols & dingbats
+    "️"                  # variation selector-16
+    "]+"
+)
+
+
+def strip_for_speech(text: str) -> str:
+    """Remove emoji and tidy whitespace so text reads as plain spoken sentences."""
+    cleaned = _EMOJI_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    return cleaned.strip(" \n")
+
+
+# Some display strings (the capability list, in particular) are bulleted menus
+# meant to be read on screen, not heard — spoken aloud they run together into
+# noise, and the bot's terse system phrasing overall reads more like a menu than
+# a person. These are natural-sentence rewrites used only for TTS; the on-screen
+# `message` text is unchanged.
+_SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
+    "ru-RU": {
+        "unknown_intent": (
+            "Я пока не понял, что вы имеете в виду. Я умею переводить деньги, "
+            "работать с картами, открывать вклады, показывать баланс и выписки, "
+            "оплачивать счета, а ещё могу подсказать, куда обратиться. "
+            "Просто скажите своими словами, что вам нужно."
+        ),
+    },
+    "kk-KZ": {
+        "unknown_intent": (
+            "Кешіріңіз, не айтқыңыз келгенін әзірге түсінбедім. Мен ақша "
+            "аудара аламын, карталар бойынша көмектесе аламын, депозит аша "
+            "аламын, баланс пен үзінді көшірмені көрсете аламын, шоттарды "
+            "төлей аламын, сондай-ақ сізге қайда жүгіну керегін айтып бере "
+            "аламын. Қажетіңізді өз сөзіңізбен айта салыңыз."
+        ),
+    },
+    "en-US": {
+        "unknown_intent": (
+            "I didn't quite catch that. I can transfer money, manage your "
+            "cards, open a deposit, show your balance and statement, pay "
+            "bills, or point you to a manager. Just tell me what you need, "
+            "in your own words."
+        ),
+    },
+}
+
+
+def speech(lang: str, key: str, **kwargs: str) -> str:
+    """Return the TTS-friendly variant of message `key`.
+
+    Falls back to a symbol-stripped `t(lang, key)` when there's no dedicated
+    override for this exact language — most messages already read fine aloud
+    once emoji are gone. Never borrows another language's override: a
+    not-yet-translated language must never end up spoken in the wrong one.
+    """
+    override = _SPEECH_OVERRIDES.get(lang, {}).get(key)
+    if override:
+        return override.format(**kwargs) if kwargs else override
+    return strip_for_speech(t(lang, key, **kwargs))
+
+
 # Per-language prompt for each parameter, asked one at a time during multi-turn
 # collection. New scenarios add their parameters here; anything missing falls
 # back to a generic "please provide {param}" so collection still works.
 _SLOT_PROMPTS: dict[str, dict[str, str]] = {
     "ru-RU": {
-        "amount": "На какую сумму?",
-        "currency": "В какой валюте? (KZT, USD, EUR)",
-        "to_account": "На какой счёт перевести? Укажите номер счёта.",
-        "bill_id": "Укажите номер счёта для оплаты.",
+        "amount": "Назовите сумму, пожалуйста.",
+        "currency": "В какой валюте — тенге, доллары или евро?",
+        "to_account": "На какой счёт перевести? Назовите номер счёта.",
+        "bill_id": "Какой счёт оплатить? Назовите номер.",
         "limit": "Сколько последних транзакций показать?",
-        "from_account_kind": "С какого счёта списать? (тенговый, долларовый, …)",
-        "to_account_kind": "На какой счёт зачислить? (тенговый, долларовый, …)",
-        "phone": "Укажите номер телефона получателя.",
-        "term": "На какой срок? (в месяцах)",
-        "card_last4": "Укажите последние 4 цифры карты.",
+        "from_account_kind": "С какого счёта списать — тенгового, долларового или другого?",
+        "to_account_kind": "На какой счёт зачислить — тенговый, долларовый или другой?",
+        "phone": "Назовите номер телефона получателя, пожалуйста.",
+        "term": "На какой срок открыть депозит — в месяцах?",
+        "card_last4": "Назовите последние 4 цифры карты.",
         "limit_kind": "Какой лимит изменить — суточный или месячный?",
-        "limit_amount": "Укажите новый лимит.",
-        "period": "За какой период? (например, месяц)",
-        "cert_kind": "Какую справку подготовить? (о счёте, об отсутствии задолженности, …)",
+        "limit_amount": "Какой лимит установить?",
+        "period": "За какой период — например, за месяц?",
+        "cert_kind": "Какую справку подготовить — о счёте или об отсутствии задолженности?",
     },
     "kk-KZ": {
-        "amount": "Қандай сома?",
-        "currency": "Қай валютада? (KZT, USD, EUR)",
-        "to_account": "Қай шотқа аудару керек? Шот нөмірін көрсетіңіз.",
-        "bill_id": "Төлейтін шот нөмірін көрсетіңіз.",
+        "amount": "Қажетті соманы атаңыз.",
+        "currency": "Қай валютада — теңгемен, доллармен әлде еуромен?",
+        "to_account": "Қай шотқа аудару керек? Шот нөмірін айтыңыз.",
+        "bill_id": "Қай шотты төлеу керек? Нөмірін айтыңыз.",
         "limit": "Соңғы неше транзакцияны көрсетейін?",
-        "from_account_kind": "Қай шоттан алу керек? (теңгелік, долларлық, …)",
-        "to_account_kind": "Қай шотқа есептеу керек? (теңгелік, долларлық, …)",
-        "phone": "Алушының телефон нөмірін көрсетіңіз.",
-        "term": "Қандай мерзімге? (айлармен)",
-        "card_last4": "Картаның соңғы 4 санын көрсетіңіз.",
-        "limit_kind": "Қай лимитті өзгерту керек — тәуліктік пе, айлық па?",
-        "limit_amount": "Жаңа лимитті көрсетіңіз.",
-        "period": "Қай кезең үшін? (мысалы, ай)",
-        "cert_kind": "Қандай анықтама керек? (шот туралы, берешегі жоқ туралы, …)",
+        "from_account_kind": "Қай шоттан ақша шығару керек — теңгелік, долларлық немесе басқадан?",
+        "to_account_kind": "Қай шотқа аудару керек — теңгелік, долларлық әлде басқа шотқа?",
+        "phone": "Алушының телефон нөмірін айтыңыз.",
+        "term": "Депозитті қандай мерзімге ашу керек — аймен айтыңыз.",
+        "card_last4": "Картаның соңғы 4 цифрын айтыңыз.",
+        "limit_kind": "Қай лимитті өзгерту керек — тәуліктік пе, әлде айлық па?",
+        "limit_amount": "Қандай лимит орнату керек?",
+        "period": "Қандай мерзімге — мысалы, бір айға?",
+        "cert_kind": "Қандай анықтама дайындау керек — шот туралы ма, әлде берешектің жоқтығы туралы ма?",
     },
     "en-US": {
-        "amount": "What amount?",
-        "currency": "Which currency? (KZT, USD, EUR)",
-        "to_account": "Which account? Please provide the account number.",
-        "bill_id": "Please provide the bill number.",
+        "amount": "What amount, please?",
+        "currency": "Which currency — tenge, dollars, or euros?",
+        "to_account": "Which account should I send it to? Please give me the account number.",
+        "bill_id": "Which bill would you like to pay? Please give me the number.",
         "limit": "How many recent transactions?",
-        "from_account_kind": "From which account? (tenge, dollar, …)",
-        "to_account_kind": "To which account? (tenge, dollar, …)",
-        "phone": "Please provide the recipient's phone number.",
-        "term": "For what term? (in months)",
-        "card_last4": "Please provide the last 4 digits of the card.",
-        "limit_kind": "Which limit — daily or monthly?",
-        "limit_amount": "Please provide the new limit.",
-        "period": "For what period? (e.g. month)",
-        "cert_kind": "Which certificate? (account, no-debt, …)",
+        "from_account_kind": "Which account should I take it from — tenge, dollar, or other?",
+        "to_account_kind": "Which account should I credit it to — tenge, dollar, or other?",
+        "phone": "What's the recipient's phone number?",
+        "term": "For how many months should I open the deposit?",
+        "card_last4": "What are the last 4 digits of the card?",
+        "limit_kind": "Which limit should I change — daily or monthly?",
+        "limit_amount": "What limit would you like to set?",
+        "period": "For which period — for example, the last month?",
+        "cert_kind": "Which certificate would you like — account statement or a no-debt certificate?",
     },
 }
 

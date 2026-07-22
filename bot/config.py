@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     TTS_VOICE_REPLIES: bool = False
     # Per-language TTS voice (speech-service / Yandex voice names). The voice
     # determines the spoken language, so Kazakh needs a Kazakh voice.
-    TTS_VOICE_RU: str = "jane"   # Russian
-    TTS_VOICE_KK: str = "madi"   # Kazakh
-    TTS_VOICE_EN: str = "jane"   # no English voice available — Russian fallback
+    TTS_VOICE_RU: str = "marina"   # Russian
+    TTS_VOICE_KK: str = "amira"    # Kazakh
+    TTS_VOICE_EN: str = "marina"   # no English voice available — Russian fallback
     # Fallback voice for any language without a specific mapping.
-    TTS_VOICE_DEFAULT: str = "jane"
+    TTS_VOICE_DEFAULT: str = "marina"
     # Public URL of the web voice client; when set, /start shows a
     # "try the web version" button linking to it.
     WEB_APP_URL: str = ""

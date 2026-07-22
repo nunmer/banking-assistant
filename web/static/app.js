@@ -260,6 +260,7 @@
   }
 
   function vaporizeCurrentBlock() {
+    if (!captionEl) return;
     const current = captionEl.querySelector(".caption-block:not(.leaving)");
     if (!current) return;
     current.classList.add("leaving");
@@ -267,6 +268,7 @@
   }
 
   function showCaptionBlock(text) {
+    if (!captionEl) return;
     vaporizeCurrentBlock();
     const el = document.createElement("span");
     el.className = "caption-block";
@@ -280,7 +282,7 @@
       clearTimeout(captionTimer);
       captionTimer = null;
     }
-    captionEl.innerHTML = "";
+    if (captionEl) captionEl.innerHTML = "";
   }
 
   function playCaption(text, totalMs) {
@@ -481,9 +483,27 @@
     recorder = null;
   }
 
+  function recoverFromMicError(err) {
+    console.error("mic toggle failed:", err);
+    recording = false;
+    micBtn.classList.remove("recording");
+    micBtn.disabled = false;
+    bubble(t("error"), "bot error");
+    setStatus("idle");
+    Sphere.setMode("idle");
+  }
+
   function toggleRecording() {
-    if (recording) stopRecording();
-    else startRecording();
+    // Any unexpected error here must surface, not silently make the mic
+    // button do nothing — that's indistinguishable from "broken" to the user.
+    // startRecording() is async and called without await, so its errors need
+    // a .catch(), not just try/catch (which only sees synchronous throws).
+    try {
+      if (recording) stopRecording();
+      else startRecording().catch(recoverFromMicError);
+    } catch (err) {
+      recoverFromMicError(err);
+    }
   }
 
   micBtn.addEventListener("click", toggleRecording);

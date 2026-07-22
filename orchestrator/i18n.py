@@ -85,9 +85,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
 
 
 def t(lang: str, key: str, **kwargs: str) -> str:
-    """Return the localised string for the given language and key."""
+    """Return the localised string for the given language and key.
+
+    A key missing from a supported language's own bucket falls back to
+    DEFAULT_LANG (ru-RU), not English — this text may be spoken by a TTS
+    voice chosen to match `lang`, and Russian is the language this user base
+    is actually likely to understand, unlike a silent assumption of English.
+    """
     bucket = _MESSAGES.get(lang) or _MESSAGES[DEFAULT_LANG]
-    template = bucket.get(key) or _MESSAGES["en-US"].get(key, key)
+    template = bucket.get(key) or _MESSAGES[DEFAULT_LANG].get(key, key)
     return template.format(**kwargs) if kwargs else template
 
 

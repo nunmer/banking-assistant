@@ -49,6 +49,23 @@ class TestI18nHelper:
         msg = t("fr-FR", "cancelled")
         assert msg == t("ru-RU", "cancelled")  # falls back to DEFAULT_LANG (ru-RU)
 
+    def test_missing_key_in_supported_lang_falls_back_to_default_not_english(self):
+        # Regression guard: a kk-KZ session whose reply text falls back to
+        # English (because a key wasn't translated yet) gets read aloud by a
+        # Kazakh TTS voice — garbled noise, not a language mismatch a user can
+        # even parse visually. Falling back to ru-RU instead is understandable
+        # to this user base and is what "Russian is the default" (this
+        # module's own docstring) should actually mean in practice.
+        import orchestrator.i18n as i18n_module
+
+        original = dict(i18n_module._MESSAGES["kk-KZ"])
+        try:
+            i18n_module._MESSAGES["kk-KZ"].pop("cancelled", None)
+            assert t("kk-KZ", "cancelled") == t("ru-RU", "cancelled")
+            assert t("kk-KZ", "cancelled") != t("en-US", "cancelled")
+        finally:
+            i18n_module._MESSAGES["kk-KZ"] = original
+
     def test_cancelled_messages(self):
         assert "отменил" in t("ru-RU", "cancelled")
         assert "тарт" in t("kk-KZ", "cancelled")

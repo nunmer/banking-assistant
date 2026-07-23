@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestrator.models import IntentResult
+from orchestrator.models import IntentResult, MIBResult
 
 # Scenario stub reused across tests.
 _TRANSFER_SCENARIO = MagicMock(
@@ -65,7 +65,11 @@ async def test_chat_returns_confirm_for_transfer(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_unknown_intent_returns_reply(client):
+async def test_chat_confident_unknown_intent_is_understood(client):
+    """A confidently-classified 'unknown' (a clear, well-formed request the
+    bot just doesn't handle, e.g. "play music") was unmistakably addressed to
+    the bot, so it must get a spoken reply — not be swallowed as if it were
+    ambient chatter the mic happened to pick up."""
     with (
         patch(
             "orchestrator.services.llm.classify",
@@ -79,9 +83,78 @@ async def test_chat_unknown_intent_returns_reply(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["action"] == "reply"
-    # Lets a hands-free voice client suppress this specific reply — it's the
-    # one case ambient chatter (not addressed to the bot) can trigger.
+    assert body["understood"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_low_confidence_intent_is_not_understood(client):
+    """A low-confidence read — the LLM itself unsure what it even heard —
+    is the one case that can plausibly be ambient chatter, not a real
+    request. Lets a hands-free voice client suppress this specific reply
+    rather than interrupting a side conversation the mic happened to pick up."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="unknown", params={}, confidence=0.2)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2", "text": "и потом мы пошли в кино"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"
     assert body["understood"] is False
+
+
+@pytest.mark.asyncio
+async def test_chat_unknown_intent_with_topic_names_it_in_the_reply(client):
+    """When the LLM can name what was actually asked about (a real question
+    it has no data for, e.g. an exchange rate), the decline should reference
+    that topic instead of dumping the full generic capability list."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(
+                intent="unknown", params={}, confidence=0.9, lang="ru-RU",
+                topic="курс доллара к тенге",
+            )),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u3", "text": "Какой сейчас курс доллара к тенге?"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"
+    assert body["understood"] is True
+    assert "курс доллара к тенге" in body["message"]
+    # Not the generic capability dump.
+    assert "Переводы" not in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_chat_unknown_intent_without_topic_falls_back_to_generic_reply(client):
+    """No topic (e.g. a genuinely open-ended off-topic remark) still gets the
+    original capability-list reply, unchanged."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="unknown", params={}, confidence=0.9)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+    ):
+        resp = await client.post("/chat", json={"session_id": "u4", "text": "Play music"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["understood"] is True
+    assert "Transfers" in body["message"]
 
 
 @pytest.mark.asyncio
@@ -217,6 +290,56 @@ async def test_chat_farewell_gets_distinct_reply_from_greeting(client):
     from orchestrator.i18n import t
     assert body["message"] == t("en-US", "farewell")
     assert body["message"] != t("en-US", "greeting")
+    scenario_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_bot_info_answers_who_are_you(client):
+    """'Who are you?'/'What can you do?' gets the bot's identity + capability
+    reply, not the generic 'I didn't understand' capability dump."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="bot_info", params={}, confidence=0.97)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2e", "text": "Who are you?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "reply"
+    assert body["understood"] is True
+    from orchestrator.i18n import t
+    assert body["message"] == t("en-US", "bot_info")
+    assert body["message"] != t("en-US", "unknown_intent")
+    scenario_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_slotfill_bot_info_does_not_derail_collection(client):
+    """Asking 'what can you do' mid-collection re-asks the same slot instead
+    of abandoning the operation in progress."""
+    sf = {"intent": "deposit_open", "params": {"amount": "100000"},
+          "missing": ["term"], "lang": "en-US"}
+    with (
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.slotfill.get", new=AsyncMock(return_value=sf)),
+        patch("orchestrator.services.llm.extract_param", new=AsyncMock(return_value=None)),
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="bot_info", params={}, confidence=0.97)),
+        ),
+        patch("orchestrator.services.scenario.get", new=AsyncMock()) as scenario_get,
+    ):
+        resp = await client.post("/chat", json={"session_id": "u2f", "text": "what can you do?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "collect"  # still waiting on term, not switched away
     scenario_get.assert_not_awaited()
 
 
@@ -722,3 +845,33 @@ async def test_slotfill_context_switch_to_new_intent(client):
     assert resp.status_code == 200
     assert resp.json()["action"] == "confirm"  # balance needs no params → confirm
     clear.assert_awaited()  # abandoned the transfer collection
+
+
+@pytest.mark.asyncio
+async def test_chat_spoken_yes_for_statement_pdf_marks_document(client):
+    """A spoken/typed 'yes' resolving a pending statement_pdf confirmation
+    (the /chat path, as opposed to /confirm/reply's button tap) must also
+    flag `document` — both call sites share _record_operation."""
+    pending = {
+        "scenario_intent": "statement_pdf",
+        "mib_endpoint": "/statement/pdf",
+        "mib_method": "POST",
+        "params": {"period": "month"},
+        "lang": "en-US",
+    }
+    with (
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=pending)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+        patch(
+            "orchestrator.services.mib.execute",
+            new=AsyncMock(return_value=MIBResult(
+                status="success", tx_id="MOCK-YES00001", message="Done. Ref: MOCK-YES00001",
+            )),
+        ),
+        patch("orchestrator.services.statement_pdf.generate_and_store", new=AsyncMock(return_value=True)),
+    ):
+        resp = await client.post("/chat", json={"session_id": "u10", "text": "yes"})
+
+    assert resp.status_code == 200
+    assert resp.json()["operation"]["document"] == "statement_pdf"

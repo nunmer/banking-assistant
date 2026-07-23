@@ -34,11 +34,42 @@ class TestI18nHelper:
         msg = t("en-US", "unknown_intent")
         assert "help with" in msg and "Transfers" in msg
 
+    def test_russian_unknown_intent_topic_names_the_topic(self):
+        msg = t("ru-RU", "unknown_intent_topic", topic="курс доллара к тенге")
+        assert "курс доллара к тенге" in msg
+
+    def test_english_unknown_intent_topic_names_the_topic(self):
+        msg = t("en-US", "unknown_intent_topic", topic="today's weather")
+        assert "today's weather" in msg
+
+    def test_kazakh_unknown_intent_topic_names_the_topic(self):
+        assert effective_lang("kk-KZ", "unknown_intent_topic") == "kk-KZ"
+        msg = t("kk-KZ", "unknown_intent_topic", topic="доллар бағамы")
+        assert "доллар бағамы" in msg
+
     @pytest.mark.parametrize("lang", ["ru-RU", "en-US"])
     def test_greeting_and_farewell_are_distinct(self, lang):
         # "hello" and "thanks, bye" must not get the same canned reply — a
         # closing remark read back in response to an opener sounds wrong.
         assert t(lang, "greeting") != t(lang, "farewell")
+
+    def test_russian_bot_info_names_the_assistant(self):
+        msg = t("ru-RU", "bot_info")
+        assert "AI-nur" in msg and "Переводы" in msg
+
+    def test_english_bot_info_names_the_assistant(self):
+        msg = t("en-US", "bot_info")
+        assert "AI-nur" in msg and "Transfers" in msg
+
+    def test_kazakh_bot_info_falls_back_to_russian(self):
+        # No kk-KZ translation yet (see no-kazakh-authoring policy) — both the
+        # text AND the reported language must fall back together, or a Kazakh
+        # TTS voice would end up reading Russian words.
+        assert effective_lang("kk-KZ", "bot_info") == "ru-RU"
+        assert t("kk-KZ", "bot_info") == t("ru-RU", "bot_info")
+
+    def test_bot_info_distinct_from_unknown_intent(self):
+        assert t("en-US", "bot_info") != t("en-US", "unknown_intent")
 
     def test_missing_params_interpolation(self):
         msg = t("en-US", "missing_params", params="currency, to_account")
@@ -133,6 +164,16 @@ class TestSpeech:
         kk = speech("kk-KZ", "unknown_intent")
         ru = speech("ru-RU", "unknown_intent")
         assert kk != ru
+
+    @pytest.mark.parametrize("lang", ["ru-RU", "en-US"])
+    def test_bot_info_has_dedicated_override(self, lang):
+        # Same bulleted-list-unreadable-aloud problem as unknown_intent.
+        # kk-KZ has no bot_info translation yet, so it's excluded here (falls
+        # back to the ru-RU override via effective_lang, same as t()).
+        override = speech(lang, "bot_info")
+        assert override != t(lang, "bot_info")
+        assert "\n" not in override
+        assert not any("\U0001F300" <= ch <= "\U0001FAFF" for ch in override)
 
 
 class TestSlotPrompt:

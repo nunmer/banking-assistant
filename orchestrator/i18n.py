@@ -21,6 +21,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация и связь с менеджером\n\n"
             "Просто напишите или скажите, что нужно — например «переведи 5000 тенге на +7 701 …»."
         ),
+        "unknown_intent_topic": "Извините, у меня нет информации по теме «{topic}». Чем ещё могу помочь?",
+        "bot_info": (
+            "Я — AI-nur, голосовой ассистент ForteBank. 🤖\n\n"
+            "Вот с чем я могу помочь:\n\n"
+            "💸 Переводы — на счёт, между своими счетами, по номеру телефона\n"
+            "💳 Карты — заблокировать, разблокировать, изменить лимит\n"
+            "🏦 Депозит — открыть\n"
+            "📄 Счёт — баланс, выписка, справка\n"
+            "🧾 Оплата счетов\n"
+            "📍 Навигация и связь с менеджером\n\n"
+            "Просто напишите или скажите, что нужно."
+        ),
         "greeting": "Здравствуйте! Чем могу помочь?",
         "greeting_named": "Здравствуйте, {name}! Чем могу помочь?",
         "farewell": "Рад был помочь! Обращайтесь, если что-то понадобится.",
@@ -46,6 +58,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "📍 Навигация және менеджермен байланыс\n\n"
             "Не керегін жазыңыз немесе айтыңыз — мысалы «+7 701 … нөміріне 5000 теңге аудар»."
         ),
+        "unknown_intent_topic": "Кешіріңіз, «{topic}» тақырыбы бойынша менде ақпарат жоқ. Тағы қандай көмегім қажет?",
+        # bot_info: no kk-KZ translation yet — t()/speech() fall back to
+        # ru-RU for this key until it's supplied (see effective_lang).
         "greeting": "Сәлеметсіз бе! Сізге қалай көмектесе аламын?",
         "greeting_named": "Сәлеметсіз бе, {name}! Сізге қалай көмектесе аламын?",
         "farewell": "Көмектескеніме қуаныштымын! Қажет болса, айта беріңіз.",
@@ -70,6 +85,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "🧾 Pay bills\n"
             "📍 Navigation and reaching a manager\n\n"
             "Just type or say what you need — e.g. \"send 5000 tenge to +7 701 …\"."
+        ),
+        "unknown_intent_topic": "Sorry, I don't have information about {topic}. What else can I help with?",
+        "bot_info": (
+            "I'm AI-nur, ForteBank's voice assistant. 🤖\n\n"
+            "Here's what I can help with:\n\n"
+            "💸 Transfers — to an account, between your own accounts, by phone number\n"
+            "💳 Cards — block, unblock, change limit\n"
+            "🏦 Deposit — open one\n"
+            "📄 Account — balance, statement, certificate\n"
+            "🧾 Pay bills\n"
+            "📍 Navigation and reaching a manager\n\n"
+            "Just type or say what you need."
         ),
         "greeting": "Hello! How can I help you today?",
         "greeting_named": "Hello, {name}! How can I help you today?",
@@ -150,6 +177,13 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "оплачивать счета, а ещё могу подсказать, куда обратиться. "
             "Просто скажите своими словами, что вам нужно."
         ),
+        "bot_info": (
+            "Я — голосовой ассистент ForteBank по имени AI-nur. Я умею "
+            "переводить деньги, работать с картами, открывать вклады, "
+            "показывать баланс и выписки, оплачивать счета, а ещё могу "
+            "подсказать, куда обратиться. Просто скажите своими словами, что "
+            "вам нужно."
+        ),
     },
     "kk-KZ": {
         "unknown_intent": (
@@ -159,6 +193,8 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "төлей аламын, сондай-ақ сізге қайда жүгіну керегін айтып бере "
             "аламын. Қажетіңізді өз сөзіңізбен айта салыңыз."
         ),
+        # bot_info: no kk-KZ translation yet — falls back to the ru-RU
+        # override (see effective_lang/speech in this module).
     },
     "en-US": {
         "unknown_intent": (
@@ -166,6 +202,12 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "cards, open a deposit, show your balance and statement, pay "
             "bills, or point you to a manager. Just tell me what you need, "
             "in your own words."
+        ),
+        "bot_info": (
+            "I'm AI-nur, ForteBank's voice assistant. I can transfer money, "
+            "manage your cards, open a deposit, show your balance and "
+            "statement, pay bills, or point you to a manager. Just tell me "
+            "what you need, in your own words."
         ),
     },
 }

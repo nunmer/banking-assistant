@@ -276,10 +276,12 @@ async def _run_turn(
         # from this; dropping it would wipe the confirmation without a trace.
         "operation": data.get("operation"),
         "audio": audio_b64,
-        # False only for the "I didn't understand" reply — lets a hands-free
-        # caller (ws_converse) decide to stay silent on ambient chatter rather
-        # than interrupting the user with it. /api/converse ignores this;
-        # a deliberate single recording deserves an answer either way.
+        # False only for a LOW-CONFIDENCE "I didn't understand" — the LLM
+        # itself unsure what it even heard, the one case that can plausibly
+        # be ambient chatter. Lets a hands-free caller (ws_converse) decide
+        # to stay silent rather than interrupting the user with it.
+        # /api/converse ignores this; a deliberate single recording deserves
+        # an answer either way.
         "understood": data.get("understood", True),
     }
 
@@ -368,10 +370,13 @@ async def ws_converse(websocket: WebSocket) -> None:
       5. Server sends {"type": "partial", "text": ...} live per turn, one
          {"type": "reply", message, audio, action, operation} per completed
          utterance the user was actually addressing to the bot (an
-         "understood: false" turn — ambient chatter, not a real request — is
-         silently dropped, not sent), or {"type": "interrupt"} the moment a
-         stop/wait word is heard mid-reply. Keeps going for however many
-         turns happen before "end".
+         "understood: false" turn — a low-confidence read where the LLM
+         itself wasn't sure what it even heard, the one case that can
+         plausibly be ambient chatter rather than a real request — is
+         silently dropped, not sent; a confidently-classified "unknown", like
+         a clear off-topic request, still gets a real reply), or
+         {"type": "interrupt"} the moment a stop/wait word is heard
+         mid-reply. Keeps going for however many turns happen before "end".
     """
     await websocket.accept()
     try:
@@ -433,9 +438,13 @@ async def ws_converse(websocket: WebSocket) -> None:
                 # the upstream keeps queuing any audio that arrives meanwhile.
                 result = await _run_turn(client, session_id, text, user_name)
                 if not result.get("understood", True):
-                    # Ambient chatter, not addressed to the bot — the honest
+                    # Low-confidence read — the LLM itself unsure what it
+                    # even heard — is the one case that can plausibly be
+                    # ambient chatter, not addressed to the bot. The honest
                     # answer to "was this meant for me" is stay silent, not
-                    # interrupt with "I didn't understand".
+                    # interrupt with "I didn't understand". A confidently
+                    # classified "unknown" doesn't hit this branch — it comes
+                    # back with understood=True and gets a real reply below.
                     continue
                 try:
                     await websocket.send_json({"type": "reply", **result})
@@ -512,6 +521,29 @@ async def api_history(request: Request, session_id: str, limit: int = 20) -> dic
         logger.error("history failed %s: %s", resp.status_code, resp.text[:300])
         raise HTTPException(status_code=502, detail="History is unavailable")
     return resp.json()
+
+
+@app.get("/api/statement/pdf/{tx_id}")
+async def api_statement_pdf(request: Request, tx_id: str) -> Response:
+    """Download the PDF generated for a completed statement_pdf operation.
+
+    Only orchestrator (never the browser directly, see docker-compose.yml)
+    holds the actual bytes, cached there under a short TTL — this just
+    proxies the fetch and adds the headers that make a browser download it.
+    """
+    _rate_limit(request)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(f"{ORCHESTRATOR_URL}/document/statement/{tx_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Statement not found or expired")
+    if resp.status_code != 200:
+        logger.error("statement PDF fetch failed %s: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=502, detail="Statement is unavailable")
+    return Response(
+        content=resp.content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="statement.pdf"'},
+    )
 
 
 def _asset_version(filename: str) -> str:

@@ -117,6 +117,93 @@ async def test_confirm_clears_before_mib_to_prevent_double_execute(client):
     assert call_order == ["clear", "mib"]
 
 
+_STATEMENT_PENDING = {
+    "scenario_intent": "statement_pdf",
+    "mib_endpoint": "/statement/pdf",
+    "mib_method": "POST",
+    "params": {"period": "month"},
+    "lang": "ru-RU",
+}
+
+
+@pytest.mark.asyncio
+async def test_confirm_statement_pdf_marks_operation_document_on_success(client):
+    """A completed statement_pdf operation should flag `document` in the
+    response so the client can offer a download, not just a plain summary."""
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_STATEMENT_PENDING)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_SUCCESS)),
+        patch("orchestrator.services.statement_pdf.generate_and_store", new=AsyncMock(return_value=True)),
+    ):
+        resp = await client.post(
+            "/confirm/reply", json={"session_id": "u1", "approved": True}
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["operation"]["document"] == "statement_pdf"
+
+
+@pytest.mark.asyncio
+async def test_confirm_statement_pdf_generation_failure_omits_document(client):
+    """PDF generation is best-effort — a failure must not add a `document`
+    flag pointing at a file that doesn't actually exist, but must not break
+    the reply either."""
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_STATEMENT_PENDING)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_SUCCESS)),
+        patch("orchestrator.services.statement_pdf.generate_and_store", new=AsyncMock(return_value=False)),
+    ):
+        resp = await client.post(
+            "/confirm/reply", json={"session_id": "u1", "approved": True}
+        )
+
+    assert resp.status_code == 200
+    assert "document" not in resp.json()["operation"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_statement_pdf_not_generated_on_mib_error(client):
+    """No point generating a PDF for an operation the bank itself rejected."""
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_STATEMENT_PENDING)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_ERROR)),
+        patch("orchestrator.services.statement_pdf.generate_and_store", new=AsyncMock()) as gen,
+    ):
+        resp = await client.post(
+            "/confirm/reply", json={"session_id": "u1", "approved": True}
+        )
+
+    assert resp.status_code == 200
+    gen.assert_not_awaited()
+    assert "document" not in resp.json()["operation"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_non_statement_operation_has_no_document_flag(client):
+    """An ordinary transfer must never get a `document` flag — regression
+    guard against the statement_pdf branch firing for unrelated intents."""
+    with (
+        patch("orchestrator.services.session.get", new=AsyncMock(return_value=_SESSION)),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
+        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_SUCCESS)),
+        patch("orchestrator.services.statement_pdf.generate_and_store", new=AsyncMock()) as gen,
+    ):
+        resp = await client.post(
+            "/confirm/reply", json={"session_id": "u1", "approved": True}
+        )
+
+    assert resp.status_code == 200
+    gen.assert_not_awaited()
+    assert "document" not in resp.json()["operation"]
+
+
 @pytest.mark.asyncio
 async def test_confirm_kazakh_session_returns_kazakh_cancel(client):
     with (

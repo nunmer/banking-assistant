@@ -210,6 +210,129 @@ body {
   .caption-block.leaving { opacity: 0; }
 }
 
+/* ── Statement PDF "generating" ghost — a document assembling itself over
+   the sphere, then flying down into its slot in the history log (app.js
+   handles the FLIP transition; this only styles the ghost card itself). ── */
+
+.doc-gen {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+
+.doc-gen.active { opacity: 1; }
+
+.doc-card {
+  width: min(72vw, 210px);
+  padding: 18px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  box-shadow: 0 0 0 1px rgba(238, 45, 139, 0.18), 0 12px 34px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.doc-icon {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--magenta-soft);
+  animation: doc-pulse 1.4s ease-in-out infinite;
+}
+
+.doc-card.done .doc-icon { animation: none; color: var(--magenta-soft); }
+
+.doc-lines {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.doc-line {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  align-self: flex-start;
+  position: relative;
+  overflow: hidden;
+}
+
+.doc-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--magenta), var(--magenta-bright));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.doc-line.filled::after { transform: scaleX(1); }
+
+.doc-check {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  background: radial-gradient(circle, var(--magenta-bright), var(--magenta));
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.5);
+}
+
+.doc-card.done .doc-check {
+  animation: doc-check-pop 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.3) forwards;
+}
+
+@keyframes doc-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(238, 45, 139, 0.35)); }
+  50%      { filter: drop-shadow(0 0 12px rgba(238, 45, 139, 0.75)); }
+}
+
+@keyframes doc-check-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-icon { animation: none; }
+  .doc-line::after { transition: none; }
+  .doc-card.done .doc-check { animation: none; opacity: 1; transform: scale(1); }
+}
+
+/* Download affordance on a completed statement_pdf history card. */
+.op-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--magenta-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  width: fit-content;
+  transition: background 0.15s;
+}
+
+.op-download:active { background: var(--magenta); color: #fff; }
+
 /* ── Chat log ────────────────────────────────────────────────────────── */
 
 .chat {

@@ -114,6 +114,35 @@ async def test_history_proxies_to_orchestrator(client):
 
 
 @pytest.mark.asyncio
+async def test_statement_pdf_proxies_bytes_and_sets_download_headers(client):
+    class _GetStub(_StubClient):
+        async def get(self, url, **kwargs):
+            _StubClient.last_call = {"url": url, **kwargs}
+            return _StubResponse(content=b"%PDF-1.4\nfake\n%%EOF")
+
+    with patch.object(gateway.httpx, "AsyncClient", _GetStub):
+        resp = await client.get("/api/statement/pdf/MOCK-ABCD1234")
+
+    assert resp.status_code == 200
+    assert resp.content.startswith(b"%PDF")
+    assert resp.headers["content-type"] == "application/pdf"
+    assert "attachment" in resp.headers["content-disposition"]
+    assert _StubClient.last_call["url"].endswith("/document/statement/MOCK-ABCD1234")
+
+
+@pytest.mark.asyncio
+async def test_statement_pdf_404_when_expired(client):
+    class _GetStub(_StubClient):
+        async def get(self, url, **kwargs):
+            return _StubResponse(status_code=404)
+
+    with patch.object(gateway.httpx, "AsyncClient", _GetStub):
+        resp = await client.get("/api/statement/pdf/MOCK-GONE0000")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_chat_rejects_empty_text(client):
     resp = await client.post("/api/chat", json={"session_id": "web-2", "text": "  "})
     assert resp.status_code == 400

@@ -38,6 +38,7 @@
   const statusEl = document.getElementById("status");
   const form = document.getElementById("text-form");
   const input = document.getElementById("text-input");
+  const docGenEl = document.getElementById("doc-gen");
 
   // Stable per-browser session, so multi-turn slot-filling works. Inside
   // Telegram this is replaced (below) by the verified Telegram user id, so the
@@ -105,8 +106,89 @@
     el.innerHTML =
       `<div class="op-summary"></div><div class="op-meta">${icon} ${when}${via}</div>`;
     el.querySelector(".op-summary").textContent = op.summary;
+    if (op.document === "statement_pdf" && op.status === "success" && op.tx_id) {
+      // "📄 PDF" rather than a translated verb — a universally understood
+      // badge that needs no per-language copy (icon + file-type abbreviation).
+      const link = document.createElement("a");
+      link.className = "op-download";
+      link.href = `/api/statement/pdf/${encodeURIComponent(op.tx_id)}`;
+      link.setAttribute("download", "statement.pdf");
+      link.textContent = "📄 PDF ⬇";
+      el.appendChild(link);
+    }
     chatEl.appendChild(el);
     chatEl.scrollTop = chatEl.scrollHeight;
+    return el;
+  }
+
+  // ── Statement PDF "generating" flourish ─────────────────────────────────
+  // By the time this plays, the PDF already sits server-side (built during
+  // the chat+TTS round trip) — this is pure theater, giving "materializing a
+  // document" its due moment before the result lands as an ordinary history
+  // card, instead of an instant silent pop-in. Sequence: a ghost card over
+  // the sphere "prints" a few lines, shows a checkmark, then FLIPs (classic
+  // measure-invert-play transform trick) into the exact slot the real history
+  // card lands in, so it reads as one continuous object arriving there.
+  async function animateDocumentGeneration(operation) {
+    if (!docGenEl) {
+      opCard({ ...operation, created_at: new Date().toISOString() });
+      return;
+    }
+    docGenEl.innerHTML =
+      `<div class="doc-card">
+         <div class="doc-icon">
+           <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6">
+             <path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>
+           </svg>
+           <div class="doc-check">✓</div>
+         </div>
+         <div class="doc-lines">
+           <span class="doc-line" style="width:78%"></span>
+           <span class="doc-line" style="width:52%"></span>
+           <span class="doc-line" style="width:64%"></span>
+           <span class="doc-line" style="width:40%"></span>
+         </div>
+       </div>`;
+    const card = docGenEl.querySelector(".doc-card");
+    const lines = docGenEl.querySelectorAll(".doc-line");
+    docGenEl.classList.add("active");
+
+    for (const line of lines) {
+      line.classList.add("filled");
+      await new Promise((r) => setTimeout(r, 240));
+    }
+    await new Promise((r) => setTimeout(r, 120));
+    card.classList.add("done");
+    await new Promise((r) => setTimeout(r, 650));
+
+    // FLIP: place the real card, position it exactly over the ghost via an
+    // inverse transform, swap visibility on the same frame (no double-flash),
+    // then animate the transform away to its natural resting spot.
+    const startRect = card.getBoundingClientRect();
+    const el = opCard({ ...operation, created_at: new Date().toISOString() });
+    const endRect = el.getBoundingClientRect();
+
+    const dx = startRect.left - endRect.left;
+    const dy = startRect.top - endRect.top;
+    const sx = startRect.width / endRect.width;
+    const sy = startRect.height / endRect.height;
+
+    el.style.transformOrigin = "top left";
+    el.style.transition = "none";
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    el.style.opacity = "0";
+    docGenEl.classList.remove("active");
+    el.style.opacity = "1";
+
+    requestAnimationFrame(() => {
+      el.style.transition = "transform 0.55s cubic-bezier(0.22, 0.7, 0.2, 1)";
+      el.style.transform = "none";
+    });
+
+    await new Promise((r) => setTimeout(r, 600));
+    el.style.transition = "";
+    el.style.transformOrigin = "";
+    docGenEl.innerHTML = "";
   }
 
   let uiLang = "ru-RU"; // follows the language of the last bot reply
@@ -769,7 +851,13 @@
       if (data.operation) {
         // A completed operation stays in the log as a persistent card — in
         // BOTH modalities. This is the durable record, synced with Telegram.
-        opCard({ ...data.operation, created_at: new Date().toISOString() });
+        if (data.operation.document) {
+          // Not awaited: the generating/flying flourish runs concurrently
+          // with the spoken reply below, rather than delaying it.
+          animateDocumentGeneration(data.operation);
+        } else {
+          opCard({ ...data.operation, created_at: new Date().toISOString() });
+        }
       } else if (!voice || confirming) {
         // Text modality shows every reply; voice modality shows only the
         // confirmation (so the user sees exactly what they approve).

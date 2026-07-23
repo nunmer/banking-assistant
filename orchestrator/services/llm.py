@@ -40,12 +40,25 @@ Schema:
     "<param_name>": "<value>"
   },
   "confidence": 0.0-1.0,
-  "lang": "kk-KZ" | "ru-RU" | "en-US"
+  "lang": "kk-KZ" | "ru-RU" | "en-US",
+  "topic": "<see below>"
 }
+
+"topic" — ONLY set this when intent is "unknown" AND the message is a clear,
+understandable question or request you simply don't have a scenario for (a
+real exchange rate, weather, general trivia, "play music", …) — not when the
+message itself is too garbled/ambiguous to tell what was even asked (leave
+topic empty in that case; confidence should also be low then).
+When set, it is a short (2-6 word) neutral noun-phrase naming WHAT was asked
+about, written in `lang`, so the assistant can say "sorry, I don't know
+{topic}" — for example "курс доллара к тенге", "текущая погода", "прогноз погоды".
+CRITICAL: topic must NEVER contain an actual answer, number, rate, fact, or
+guess — only name the subject. You do not have live data and must not
+fabricate one. If intent is not "unknown", omit topic or leave it "".
 
 Available intents: transfer, transfer_own, transfer_phone, balance, payment,
 statement, statement_pdf, deposit_open, card_block, card_unblock, card_limit,
-certificate, navigation, manager, greeting, farewell, unknown
+certificate, navigation, manager, greeting, farewell, bot_info, unknown
 
 Choosing between similar intents:
 - transfer        — to an external account/IBAN the user names ("на счёт KZ123").
@@ -62,6 +75,14 @@ Choosing between similar intents:
                     misunderstanding.
 - farewell        — thanks and/or goodbye, with no further request ("thanks",
                     "спасибо", "bye", "пока", "рахмет"). Also high confidence.
+- bot_info        — a question about the ASSISTANT itself, not a banking
+                    task: what it can do, who/what it is, or its name
+                    ("What can you do?", "Who are you?", "What's your name?",
+                    "Кто ты?", "Как тебя зовут?"). High confidence — this is a
+                    normal, expected question, not a misunderstanding. Distinct
+                    from "unknown", which is for real requests the bot has no
+                    capability for (weather, exchange rates, …) — a question
+                    ABOUT the bot itself is always "bot_info", never "unknown".
 
 Important: if the user clearly names an operation but leaves out details
 (amount, account, card, phone, term, …), STILL return that intent with high
@@ -170,7 +191,13 @@ User: "Соедините меня с менеджером"
 Response: {"intent": "manager", "params": {}, "confidence": 0.96}
 
 User: "Play music"
-Response: {"intent": "unknown", "params": {}, "confidence": 0.95}
+Response: {"intent": "unknown", "params": {}, "confidence": 0.95, "topic": "playing music"}
+
+User: "Какой сейчас курс доллара к тенге?"
+Response: {"intent": "unknown", "params": {}, "confidence": 0.9, "lang": "ru-RU", "topic": "курс доллара к тенге"}
+
+User: "What's the weather like today?"
+Response: {"intent": "unknown", "params": {}, "confidence": 0.92, "lang": "en-US", "topic": "today's weather"}
 
 User: "Привет!"
 Response: {"intent": "greeting", "params": {}, "confidence": 0.98, "lang": "ru-RU"}
@@ -183,6 +210,12 @@ Response: {"intent": "farewell", "params": {}, "confidence": 0.97, "lang": "en-U
 
 User: "Спасибо большое!"
 Response: {"intent": "farewell", "params": {}, "confidence": 0.96, "lang": "ru-RU"}
+
+User: "What can you do?"
+Response: {"intent": "bot_info", "params": {}, "confidence": 0.97, "lang": "en-US"}
+
+User: "Кто ты? Как тебя зовут?"
+Response: {"intent": "bot_info", "params": {}, "confidence": 0.96, "lang": "ru-RU"}
 """.strip()
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -288,9 +321,19 @@ async def classify(text: str, session_id: str) -> IntentResult:
     lang = data.get("lang")
     lang = lang if lang in SUPPORTED_LANGS else None
 
+    # Defense in depth against the model ignoring the length/content rules in
+    # the prompt: cap the length so a hallucinated ramble (which could smuggle
+    # in a fabricated "answer") never reaches the user as a short topic name.
+    topic = data.get("topic")
+    topic = str(topic).strip() if topic else None
+    if topic and len(topic) > 80:
+        topic = topic[:80].rstrip()
+    topic = topic or None
+
     return IntentResult(
         intent=str(data.get("intent", "unknown")),
         params=params,
         confidence=float(data.get("confidence", 1.0)),
         lang=lang,
+        topic=topic,
     )

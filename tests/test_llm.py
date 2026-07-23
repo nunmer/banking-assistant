@@ -48,7 +48,7 @@ class TestSystemPrompt:
     NEW_INTENTS = [
         "transfer_own", "transfer_phone", "deposit_open", "card_block",
         "card_unblock", "card_limit", "statement_pdf", "certificate",
-        "navigation", "manager", "greeting", "farewell",
+        "navigation", "manager", "greeting", "farewell", "bot_info",
     ]
 
     def test_all_new_intents_documented(self):
@@ -97,6 +97,56 @@ class TestClassifyLang:
         ):
             r = await llm.classify("balance", "s1")
         assert r.lang is None
+
+
+class TestClassifyTopic:
+    @pytest.mark.asyncio
+    async def test_parses_topic(self):
+        raw = (
+            '{"intent":"unknown","params":{},"confidence":0.9,'
+            '"lang":"ru-RU","topic":"курс доллара к тенге"}'
+        )
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("Какой курс доллара к тенге?", "s1")
+        assert r.topic == "курс доллара к тенге"
+
+    @pytest.mark.asyncio
+    async def test_missing_topic_is_none(self):
+        raw = '{"intent":"balance","params":{},"confidence":0.9}'
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("balance", "s1")
+        assert r.topic is None
+
+    @pytest.mark.asyncio
+    async def test_blank_topic_is_none(self):
+        raw = '{"intent":"unknown","params":{},"confidence":0.2,"topic":"   "}'
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("mumble mumble", "s1")
+        assert r.topic is None
+
+    @pytest.mark.asyncio
+    async def test_overlong_topic_is_truncated(self):
+        # Defense in depth: a hallucinated ramble (which could smuggle in a
+        # fabricated "answer") must never reach the user as a short topic name.
+        raw = json.dumps({
+            "intent": "unknown", "params": {}, "confidence": 0.9,
+            "topic": "x" * 200,
+        })
+        with patch.object(
+            llm.client.chat.completions, "create",
+            new=AsyncMock(return_value=_fake_completion(raw)),
+        ):
+            r = await llm.classify("something long", "s1")
+        assert len(r.topic) == 80
 
 
 class TestExtractParam:

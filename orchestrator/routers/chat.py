@@ -32,6 +32,7 @@ from orchestrator.services import (
     session,
     slotfill,
     speechtext,
+    statement_pdf,
     validators,
 )
 
@@ -41,7 +42,10 @@ router = APIRouter()
 
 # Small talk has no scenario/DB entry and no parameters to collect — it's
 # handled as an immediate reply and never counts as a real intent switch.
-_SMALL_TALK = ("greeting", "farewell")
+# bot_info ("what can you do", "who are you") is grouped here too: asking it
+# mid-slot-filling should just answer and keep collecting, not be treated as
+# abandoning the operation in progress.
+_SMALL_TALK = ("greeting", "farewell", "bot_info")
 
 
 def _speech_or_none(message: str, candidate: str) -> str | None:
@@ -89,12 +93,25 @@ async def _record_operation(
         # Mirror the operation into the user's Telegram chat (no-op for
         # anonymous browser sessions).
         await notify.telegram_operation(req.session_id, summary, result_message)
-    return {
+
+    operation = {
         "summary": summary,
         "status": result.status,
         "tx_id": result.tx_id,
         "channel": channel,
     }
+    if pending.get("scenario_intent") == "statement_pdf" and result.status != "error":
+        # Best-effort: a client just gets no download affordance if this
+        # fails, never a broken reply — see statement_pdf.generate_and_store.
+        made_pdf = await statement_pdf.generate_and_store(
+            tx_id=result.tx_id,
+            session_id=req.session_id,
+            params=pending.get("params") or {},
+            lang=pending.get("lang") or lang,
+        )
+        if made_pdf:
+            operation["document"] = "statement_pdf"
+    return operation
 
 
 async def _detect_lang(session_id: str, current: str, detected: str | None) -> str:
@@ -293,7 +310,18 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.intent in ("unknown", "")
         or intent_result.confidence < settings.MIN_CONFIDENCE
     ):
-        return _reply(lang, "unknown_intent", understood=False)
+        # A confident "unknown" (the LLM is sure what it heard, just not a
+        # banking task — "play music") was clearly addressed to the bot and
+        # deserves an answer. Only a genuinely low-confidence read — the LLM
+        # itself unsure what it even heard — gets treated as possible ambient
+        # chatter and stays silent in hands-free mode (see ws_converse).
+        understood = intent_result.confidence >= settings.MIN_CONFIDENCE
+        # When the LLM could name what was actually asked about (a real
+        # question it just has no data for — an exchange rate, the weather),
+        # name it in the decline instead of dumping the full capability list.
+        if understood and intent_result.topic:
+            return _reply(lang, "unknown_intent_topic", topic=intent_result.topic)
+        return _reply(lang, "unknown_intent", understood=understood)
 
     return await _advance(
         req.session_id, user_session, intent_result.intent,

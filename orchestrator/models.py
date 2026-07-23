@@ -45,6 +45,12 @@ class IntentResult(BaseModel):
     # Language the user wrote in (kk-KZ | ru-RU | en-US), detected by the LLM so
     # the assistant can reply in kind even when the user switches mid-conversation.
     lang: str | None = None
+    # Set only when intent="unknown": a short topic paraphrase ("курс доллара
+    # к тенге") of what the user asked about, in `lang`, so the decline reply
+    # can name it instead of dumping the generic capability list. Never an
+    # actual answer/figure — see the SYSTEM_PROMPT rule in llm.py forbidding
+    # the model from guessing a real value here.
+    topic: str | None = None
 
 
 class ConfirmReplyRequest(BaseModel):

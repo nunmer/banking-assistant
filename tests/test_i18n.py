@@ -61,12 +61,10 @@ class TestI18nHelper:
         msg = t("en-US", "bot_info")
         assert "AI-nur" in msg and "Transfers" in msg
 
-    def test_kazakh_bot_info_falls_back_to_russian(self):
-        # No kk-KZ translation yet (see no-kazakh-authoring policy) — both the
-        # text AND the reported language must fall back together, or a Kazakh
-        # TTS voice would end up reading Russian words.
-        assert effective_lang("kk-KZ", "bot_info") == "ru-RU"
-        assert t("kk-KZ", "bot_info") == t("ru-RU", "bot_info")
+    def test_kazakh_bot_info_names_the_assistant(self):
+        assert effective_lang("kk-KZ", "bot_info") == "kk-KZ"
+        msg = t("kk-KZ", "bot_info")
+        assert "AI-nur" in msg and "Аударымдар" in msg
 
     def test_bot_info_distinct_from_unknown_intent(self):
         assert t("en-US", "bot_info") != t("en-US", "unknown_intent")
@@ -165,15 +163,18 @@ class TestSpeech:
         ru = speech("ru-RU", "unknown_intent")
         assert kk != ru
 
-    @pytest.mark.parametrize("lang", ["ru-RU", "en-US"])
+    @pytest.mark.parametrize("lang", ["ru-RU", "kk-KZ", "en-US"])
     def test_bot_info_has_dedicated_override(self, lang):
         # Same bulleted-list-unreadable-aloud problem as unknown_intent.
-        # kk-KZ has no bot_info translation yet, so it's excluded here (falls
-        # back to the ru-RU override via effective_lang, same as t()).
         override = speech(lang, "bot_info")
         assert override != t(lang, "bot_info")
         assert "\n" not in override
         assert not any("\U0001F300" <= ch <= "\U0001FAFF" for ch in override)
+
+    def test_kazakh_bot_info_never_borrows_another_languages_override(self):
+        kk = speech("kk-KZ", "bot_info")
+        ru = speech("ru-RU", "bot_info")
+        assert kk != ru
 
 
 class TestSlotPrompt:

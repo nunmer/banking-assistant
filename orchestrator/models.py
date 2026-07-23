@@ -31,6 +31,11 @@ class ChatResponse(BaseModel):
     # Set when this reply completed an operation: {summary, status, tx_id,
     # created_at}. Lets clients append a persistent history card immediately.
     operation: dict | None = None
+    # False only for the "I didn't understand"/unknown-intent reply. Lets a
+    # hands-free voice client stay silent on ambient chatter it happened to
+    # pick up, instead of interrupting with a spoken "I don't understand" for
+    # every stray fragment that wasn't actually addressed to it.
+    understood: bool = True
 
 
 class IntentResult(BaseModel):

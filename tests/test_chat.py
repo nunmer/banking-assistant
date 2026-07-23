@@ -77,7 +77,11 @@ async def test_chat_unknown_intent_returns_reply(client):
         resp = await client.post("/chat", json={"session_id": "u2", "text": "Play music"})
 
     assert resp.status_code == 200
-    assert resp.json()["action"] == "reply"
+    body = resp.json()
+    assert body["action"] == "reply"
+    # Lets a hands-free voice client suppress this specific reply — it's the
+    # one case ambient chatter (not addressed to the bot) can trigger.
+    assert body["understood"] is False
 
 
 @pytest.mark.asyncio

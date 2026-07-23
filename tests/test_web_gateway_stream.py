@@ -4,7 +4,9 @@ Uses the sync TestClient (Starlette's supported way to test WebSocket routes)
 rather than the async httpx client the rest of the gateway tests use — the
 two styles coexist fine in separate files.
 """
+import asyncio
 import json
+import time
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -28,6 +30,12 @@ class _FakeUpstreamConnection:
 
     async def _iter_events(self):
         for event in self._events:
+            # Yields control back to the event loop between events so a
+            # concurrently-sent browser control message (e.g. "bot_speaking")
+            # is guaranteed to be processed before the next upstream event —
+            # otherwise this is a race in real asyncio scheduling, not just
+            # in the test.
+            await asyncio.sleep(0.02)
             yield json.dumps(event)
 
 
@@ -187,3 +195,81 @@ def test_ws_converse_handles_multiple_turns_in_one_session():
     assert chat_calls[0]["json"]["text"] == "какой у меня баланс"
     assert chat_calls[1]["json"]["text"] == "переведи 1000 тенге на счёт KZ1"
     assert all(c["json"]["session_id"] == "u-stream-multi" for c in chat_calls)
+
+
+def test_ws_converse_interrupt_word_stops_bot_without_a_chat_call():
+    """Saying "stop" while the bot is mid-reply cuts it off — and must never
+    itself be sent to chat as if it were a real banking request."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [{"type": "final", "text": "так, стоп"}, {"type": "done"}]
+    )
+    fake_connect = _FakeConnect(upstream)
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-interrupt"})
+            ws.send_json({"action": "bot_speaking", "value": True})
+
+            reply = ws.receive_json()
+            ws.send_json({"action": "end"})
+
+    assert reply == {"type": "interrupt"}
+    assert _StubClient.calls == []
+
+
+def test_ws_converse_ignores_non_interrupt_speech_while_bot_speaking():
+    """No echo cancellation — anything heard mid-reply that ISN'T an
+    interrupt word is presumed to be the bot hearing itself and dropped."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [{"type": "final", "text": "какая-то случайная фраза"}, {"type": "done"}]
+    )
+    fake_connect = _FakeConnect(upstream)
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-echo"})
+            ws.send_json({"action": "bot_speaking", "value": True})
+            ws.send_json({"action": "end"})
+
+    assert _StubClient.calls == []
+
+
+def test_ws_converse_suppresses_reply_when_not_understood():
+    """Ambient chatter that the classifier can't tie to a real request stays
+    silent instead of interrupting with "I didn't understand"."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [{"type": "final", "text": "и потом мы пошли в кино"}, {"type": "done"}]
+    )
+    fake_connect = _FakeConnect(upstream)
+    _StubClient.responses = [
+        _StubResponse(json_data={"action": "reply", "message": "Не совсем понял...",
+                                  "speech": None, "lang": "ru-RU", "understood": False}),
+        _StubResponse(content=b"mp3bytes"),
+    ]
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-ambient"})
+            ws.send_json({"action": "end"})
+            # No "reply" (or anything else) should ever arrive. There's
+            # nothing to synchronize on (the suppressed path sends nothing),
+            # so give the server task a moment to actually finish the turn
+            # before checking what it did.
+            time.sleep(0.15)
+
+    # Classification (and, today, a wasted TTS call) still ran server-side,
+    # but nothing was ever sent back to the client to interrupt with.
+    chat_calls = [c for c in _StubClient.calls if c["url"].endswith("/chat")]
+    assert len(chat_calls) == 1

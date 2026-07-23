@@ -5,9 +5,15 @@
  * end-of-utterance detector (server-side) decides when each turn is done, so
  * there's no manual stop-tap between turns. Partial captions appear while the
  * user is talking; a {message, audio, action, operation} reply arrives per
- * completed turn, plays back, and the mic (muted only for that duration, so
- * it never hears the bot's own voice) picks up again automatically for the
- * next turn. Tapping the mic/sphere again leaves hands-free mode entirely.
+ * completed turn and plays back. The mic stays live even during playback (see
+ * setBotSpeaking) so saying "stop"/"wait" cuts the reply off — there's no
+ * real echo cancellation, so anything else heard mid-reply is discarded
+ * rather than acted on. An utterance that wasn't really addressed to the bot
+ * (ambient chatter) gets silently ignored too, instead of an "I didn't
+ * understand" interruption — ping-ponging with a person nearby shouldn't
+ * trip it. Tapping the mic/sphere leaves hands-free mode entirely (or, mid-
+ * reply, just cuts the audio and keeps listening — the manual equivalent of
+ * saying "stop").
  * Where WebSocket audio capture isn't available, it falls back to the older
  * one-shot record-a-blob-then-upload flow (POST /api/converse).
  * Typed text always goes through POST /api/chat → {action, message, speech, lang}.
@@ -243,7 +249,7 @@
     }
     stopLevel();
     clearCaption();
-    micPaused = false; // interrupted mid-reply — safe to listen again right away
+    setBotSpeaking(false); // interrupted mid-reply — the mic can act on speech again
   }
 
   function newTurn() {
@@ -336,9 +342,18 @@
   let ws = null;
   let pcmProcessor = null;
   let recorder = null; // MediaRecorder — fallback path only
-  // True while a reply is playing — the mic stops sending audio so it never
-  // hears the bot's own voice and mistakes it for the next thing to say.
-  let micPaused = false;
+  // True while a reply is playing. The mic is NOT muted during this —
+  // it keeps listening so a spoken "stop"/"wait" can interrupt — but the
+  // server needs to know this state to tell an interrupt word apart from
+  // the bot just hearing its own voice through the speakers.
+  let botSpeaking = false;
+
+  function setBotSpeaking(value) {
+    botSpeaking = value;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: "bot_speaking", value }));
+    }
+  }
 
   const TARGET_RATE = 16000; // PCM rate the streaming STT endpoint expects
 
@@ -396,9 +411,9 @@
       processor.connect(mute);
       mute.connect(ctx.destination);
       processor.onaudioprocess = (e) => {
-        // Muted while the reply plays — otherwise the mic hears the bot's
-        // own voice through the speakers and feeds it back as "user speech".
-        if (micPaused || socket.readyState !== WebSocket.OPEN) return;
+        // Kept live even while the reply plays — the server needs to keep
+        // hearing in case the user says "stop"/"wait" (see setBotSpeaking).
+        if (socket.readyState !== WebSocket.OPEN) return;
         const input = e.inputBuffer.getChannelData(0);
         const pcm = floatTo16BitPCM(resampleTo16k(input, ctx.sampleRate));
         socket.send(pcm.buffer);
@@ -409,12 +424,21 @@
       let data;
       try { data = JSON.parse(evt.data); } catch { return; }
       if (data.type === "partial") {
+        // While the bot is talking, anything heard is either the start of an
+        // interrupt word or the bot's own echo — not a caption-worthy user
+        // utterance, so it's not shown as one.
+        if (botSpeaking) return;
         if (!liveBubble) liveBubble = bubble(data.text, "bot live");
         else liveBubble.textContent = data.text;
         chatEl.scrollTop = chatEl.scrollHeight;
       } else if (data.type === "reply") {
         finish();
         applyReply(data, { voice: true, myTurn });
+      } else if (data.type === "interrupt") {
+        // The server heard "stop"/"wait" while the bot was talking.
+        stopSpeaking();
+        setStatus("listening", true);
+        Sphere.setMode("listening");
       } else if (data.type === "error") {
         finish();
         bubble(t("error"), "bot error");
@@ -453,7 +477,12 @@
     const myTurn = newTurn();
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // echoCancellation matters more now than it used to: the mic stays
+      // live through the bot's own playback (see setBotSpeaking) so a
+      // spoken "stop"/"wait" can interrupt it.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
     } catch {
       bubble(t("micDenied"), "bot error");
       return;
@@ -685,10 +714,10 @@
       src.connect(analyser);
       analyser.connect(ctx.destination);
       currentSource = src;
-      // Mute the mic for the duration of playback — otherwise, in hands-free
-      // mode, it would hear this reply through the speakers and stream the
-      // bot's own voice back to Yandex as if it were the user talking.
-      micPaused = true;
+      // The mic stays live (not muted) during playback so a spoken
+      // "stop"/"wait" can interrupt — the server just needs to know we're
+      // speaking, to tell an interrupt word apart from hearing itself.
+      setBotSpeaking(true);
 
       Sphere.setMode("speaking");
       setStatus("speaking", true);
@@ -700,12 +729,12 @@
         src.start();
       });
       if (currentSource === src) currentSource = null;
-      micPaused = false;
+      setBotSpeaking(false);
       stopLevel();
       clearCaption();
     } catch (err) {
       console.error("tts playback:", err);
-      micPaused = false;
+      setBotSpeaking(false);
       stopLevel();
       clearCaption();
     }

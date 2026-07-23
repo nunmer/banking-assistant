@@ -49,12 +49,13 @@ def _speech_or_none(message: str, candidate: str) -> str | None:
     return candidate if candidate and candidate != message else None
 
 
-def _reply(lang: str, key: str, **kwargs: str) -> ChatResponse:
+def _reply(lang: str, key: str, *, understood: bool = True, **kwargs: str) -> ChatResponse:
     """A terminal `t(lang, key)` reply, with its speech variant attached."""
     msg = t(lang, key, **kwargs)
     return ChatResponse(
         action="reply", message=msg,
         speech=_speech_or_none(msg, i18n_speech(lang, key, **kwargs)), lang=lang,
+        understood=understood,
     )
 
 
@@ -280,7 +281,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         intent_result.intent in ("unknown", "")
         or intent_result.confidence < settings.MIN_CONFIDENCE
     ):
-        return _reply(lang, "unknown_intent")
+        return _reply(lang, "unknown_intent", understood=False)
 
     return await _advance(
         req.session_id, user_session, intent_result.intent,

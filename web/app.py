@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict, deque
 
@@ -47,6 +48,28 @@ RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
 # Yandex TTS rejects long texts; long replies (e.g. the capability list) are
 # spoken only up to a sentence boundary — the user reads the rest on screen.
 TTS_MAX_CHARS = 250
+
+# Words that cut the bot off mid-reply in hands-free mode. Checked regardless
+# of the session's own language — someone mid-Russian-reply may well say
+# "stop" in English. Not exhaustive by design: the mic stays "live" (not
+# muted) while the bot talks so these can be heard at all, but anything that
+# ISN'T one of these is presumed to be the bot hearing its own voice bleed
+# through the speakers (no proper echo cancellation here) and is discarded
+# rather than treated as a real request — seeing "wait" work is worth a few
+# false negatives on words we didn't list.
+_INTERRUPT_KEYWORDS = [
+    "стоп", "стой", "погоди", "подожди", "хватит", "остановись",
+    "stop", "wait", "hold on",
+]
+_INTERRUPT_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in _INTERRUPT_KEYWORDS) + r")\b",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _is_interrupt(text: str) -> bool:
+    return bool(_INTERRUPT_RE.search(text))
+
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -231,6 +254,11 @@ async def _run_turn(
         # from this; dropping it would wipe the confirmation without a trace.
         "operation": data.get("operation"),
         "audio": audio_b64,
+        # False only for the "I didn't understand" reply — lets a hands-free
+        # caller (ws_converse) decide to stay silent on ambient chatter rather
+        # than interrupting the user with it. /api/converse ignores this;
+        # a deliberate single recording deserves an answer either way.
+        "understood": data.get("understood", True),
     }
 
 
@@ -305,15 +333,23 @@ async def ws_converse(websocket: WebSocket) -> None:
          "user_name": ...}. `user_name` is only present inside Telegram
          (Mini App) and personalises a greeting reply; omitted for an
          anonymous browser session.
-      2. Send binary PCM16LE mono @ 16kHz frames continuously — pause
-         sending while the reply audio is playing (avoids the mic hearing
-         the bot), resume once it ends, no reconnect needed.
-      3. Send {"action": "end"} to leave hands-free mode.
-      4. Server sends {"type": "partial", "text": ...} live per turn, then
-         one {"type": "reply", message, audio, action, operation} per
-         completed utterance — the same shape `/api/converse` returns, so
-         the client applies each one the same way — and keeps going for
-         however many turns happen before "end".
+      2. Send binary PCM16LE mono @ 16kHz frames continuously — including
+         while the reply audio is playing. The mic is deliberately NOT muted
+         during playback, so that a spoken "stop"/"wait" can interrupt (see
+         below); there's no real echo cancellation here, so anything heard
+         while the bot is talking that ISN'T one of those interrupt words is
+         discarded rather than treated as a request.
+      3. Send {"action": "bot_speaking", "value": true|false} whenever local
+         playback starts/stops, so the server knows how to treat what it
+         hears meanwhile.
+      4. Send {"action": "end"} to leave hands-free mode.
+      5. Server sends {"type": "partial", "text": ...} live per turn, one
+         {"type": "reply", message, audio, action, operation} per completed
+         utterance the user was actually addressing to the bot (an
+         "understood: false" turn — ambient chatter, not a real request — is
+         silently dropped, not sent), or {"type": "interrupt"} the moment a
+         stop/wait word is heard mid-reply. Keeps going for however many
+         turns happen before "end".
     """
     await websocket.accept()
     try:
@@ -323,8 +359,10 @@ async def ws_converse(websocket: WebSocket) -> None:
     session_id = first.get("session_id") or ""
     lang = first.get("lang") or STT_LANGS
     user_name = first.get("user_name") or None
+    bot_speaking = False
 
     async def browser_to_upstream(upstream) -> None:
+        nonlocal bot_speaking
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
@@ -339,8 +377,11 @@ async def ws_converse(websocket: WebSocket) -> None:
                     control = json.loads(text)
                 except json.JSONDecodeError:
                     continue
-                if control.get("action") == "end":
+                action = control.get("action")
+                if action == "end":
                     break
+                if action == "bot_speaking":
+                    bot_speaking = bool(control.get("value"))
         await upstream.send(json.dumps({"action": "end"}))
 
     async def upstream_to_browser(upstream, client: httpx.AsyncClient) -> None:
@@ -356,9 +397,24 @@ async def ws_converse(websocket: WebSocket) -> None:
                 text = (event.get("text") or "").strip()
                 if not text:
                     continue
+                if bot_speaking:
+                    # No real echo cancellation — only react to an explicit
+                    # interrupt word; anything else heard mid-reply is
+                    # presumed to be the bot hearing its own voice.
+                    if _is_interrupt(text):
+                        try:
+                            await websocket.send_json({"type": "interrupt"})
+                        except (WebSocketDisconnect, RuntimeError):
+                            return
+                    continue
                 # Runs one full chat+TTS round trip per detected utterance;
                 # the upstream keeps queuing any audio that arrives meanwhile.
                 result = await _run_turn(client, session_id, text, user_name)
+                if not result.get("understood", True):
+                    # Ambient chatter, not addressed to the bot — the honest
+                    # answer to "was this meant for me" is stay silent, not
+                    # interrupt with "I didn't understand".
+                    continue
                 try:
                     await websocket.send_json({"type": "reply", **result})
                 except (WebSocketDisconnect, RuntimeError):

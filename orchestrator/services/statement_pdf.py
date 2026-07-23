@@ -112,6 +112,12 @@ def _build(tx_id: str, period: str, account: dict | None, lang: str) -> bytes:
     account_name = accounts.display_name(account, lang) if account else "—"
 
     pdf = FPDF()
+    # fpdf2 stamps /CreationDate with the real wall-clock time by default,
+    # which would make otherwise-identical output differ byte-for-byte
+    # depending on when it happened to be generated. Pin it so the same
+    # tx_id always produces the exact same file, matching this module's own
+    # "re-downloading returns the identical statement" guarantee.
+    pdf.set_creation_date(datetime(2024, 1, 1, tzinfo=timezone.utc))
     pdf.add_page()
     font = _register_font(pdf)
 

@@ -521,7 +521,7 @@ def _asset_version(filename: str) -> str:
 async def index() -> HTMLResponse:
     with open(os.path.join(STATIC_DIR, "index.html"), "r", encoding="utf-8") as f:
         html = f.read()
-    for asset in ("app.css", "app.js", "sphere.js"):
+    for asset in ("app.css", "app.js", "sphere.js", "avatar.png"):
         html = html.replace(
             f"/static/{asset}", f"/static/{asset}?v={_asset_version(asset)}"
         )

@@ -197,8 +197,8 @@ async def test_index_cache_busts_static_assets(client):
     assert resp.status_code == 200
     import re as _re
 
-    for asset in ("app.css", "app.js", "sphere.js"):
-        match = _re.search(rf"/static/{asset}\?v=([0-9a-f]{{10}})", resp.text)
+    for asset in ("app.css", "app.js", "sphere.js", "avatar.png"):
+        match = _re.search(rf"/static/{_re.escape(asset)}\?v=([0-9a-f]{{10}})", resp.text)
         assert match, f"{asset} missing a cache-busting version query"
 
 

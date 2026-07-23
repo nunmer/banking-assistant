@@ -42,6 +42,15 @@ body {
   padding: calc(env(safe-area-inset-top, 0px) + 14px) 20px 10px;
 }
 
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px var(--magenta-bright), 0 0 14px rgba(238, 45, 139, 0.5);
+}
+
 .wordmark {
   font-weight: 800;
   font-size: 1.35rem;

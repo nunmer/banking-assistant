@@ -111,9 +111,21 @@
       // badge that needs no per-language copy (icon + file-type abbreviation).
       const link = document.createElement("a");
       link.className = "op-download";
-      link.href = `/api/statement/pdf/${encodeURIComponent(op.tx_id)}`;
+      const pdfUrl = `${location.origin}/api/statement/pdf/${encodeURIComponent(op.tx_id)}`;
+      link.href = pdfUrl;
       link.setAttribute("download", "statement.pdf");
       link.textContent = "📄 PDF ⬇";
+      if (tg && tg.initData) {
+        // Inside the Telegram Mini App's WebView, navigating straight to a
+        // PDF response takes over the whole view with no back gesture —
+        // the only way out is force-closing the Mini App entirely. Hand the
+        // URL to the phone's real browser instead, which handles PDFs
+        // normally (its own back/close), leaving the Mini App untouched.
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          tg.openLink(pdfUrl);
+        });
+      }
       el.appendChild(link);
     }
     chatEl.appendChild(el);

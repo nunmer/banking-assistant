@@ -121,6 +121,8 @@
       no: "Нет",
       micDenied: "Нет доступа к микрофону — проверьте разрешения",
       error: "Что-то пошло не так. Попробуйте ещё раз.",
+      micStart: "Говорить",
+      micStop: "Остановить прослушивание",
     },
     "kk-KZ": {
       idle: "Микрофонды басып, сөйлеңіз",
@@ -131,6 +133,8 @@
       no: "Жоқ",
       micDenied: "Микрофонға рұқсат жоқ — рұқсаттарды тексеріңіз",
       error: "Бірдеңе дұрыс болмады. Қайталап көріңіз.",
+      micStart: "Сөйлеу",
+      micStop: "Тыңдауды тоқтату",
     },
     "en-US": {
       idle: "Tap the mic and speak",
@@ -141,6 +145,8 @@
       no: "No",
       micDenied: "Microphone access denied — check permissions",
       error: "Something went wrong. Please try again.",
+      micStart: "Speak",
+      micStop: "Stop listening",
     },
   };
 
@@ -498,6 +504,7 @@
     trackLevel(analyser);
 
     micBtn.classList.add("recording");
+    micBtn.setAttribute("aria-label", t("micStop"));
     Sphere.setMode("listening");
     setStatus("listening", true);
 
@@ -506,6 +513,7 @@
 
   function stopRecording() {
     micBtn.classList.remove("recording");
+    micBtn.setAttribute("aria-label", t("micStart"));
     recording = false;
     Sphere.setMode("thinking");
     setStatus("thinking", true);
@@ -543,6 +551,7 @@
     console.error("mic toggle failed:", err);
     recording = false;
     micBtn.classList.remove("recording");
+    micBtn.setAttribute("aria-label", t("micStart"));
     micBtn.disabled = false;
     bubble(t("error"), "bot error");
     setStatus("idle");

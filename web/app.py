@@ -56,10 +56,13 @@ TTS_MAX_CHARS = 250
 # ISN'T one of these is presumed to be the bot hearing its own voice bleed
 # through the speakers (no proper echo cancellation here) and is discarded
 # rather than treated as a real request — seeing "wait" work is worth a few
-# false negatives on words we didn't list.
+# false negatives on words we didn't list. Exact word match only, no
+# stemming — a conjugated/declined form not listed verbatim won't match,
+# same limitation the Russian words already had.
 _INTERRUPT_KEYWORDS = [
     "стоп", "стой", "погоди", "подожди", "хватит", "остановись",
     "stop", "wait", "hold on",
+    "тоқта", "күте тұр", "күт", "тоқтай тұр",
 ]
 _INTERRUPT_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(w) for w in _INTERRUPT_KEYWORDS) + r")\b",

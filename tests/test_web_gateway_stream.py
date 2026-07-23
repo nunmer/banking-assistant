@@ -221,6 +221,30 @@ def test_ws_converse_interrupt_word_stops_bot_without_a_chat_call():
     assert _StubClient.calls == []
 
 
+def test_ws_converse_kazakh_interrupt_word_stops_bot():
+    """The interrupt list isn't Russian/English-only — a Kazakh "тоқта"
+    (stop) must cut the bot off just like the Russian/English words do."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [{"type": "final", "text": "жарайды, тоқта"}, {"type": "done"}]
+    )
+    fake_connect = _FakeConnect(upstream)
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-interrupt-kk"})
+            ws.send_json({"action": "bot_speaking", "value": True})
+
+            reply = ws.receive_json()
+            ws.send_json({"action": "end"})
+
+    assert reply == {"type": "interrupt"}
+    assert _StubClient.calls == []
+
+
 def test_ws_converse_ignores_non_interrupt_speech_while_bot_speaking():
     """No echo cancellation — anything heard mid-reply that ISN'T an
     interrupt word is presumed to be the bot hearing itself and dropped."""

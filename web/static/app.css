@@ -355,6 +355,13 @@ body {
 
 .mic:active { transform: scale(0.94); }
 
+/* Default state shows the mic glyph; while actively listening, a filled
+   square (the universal "stop" shape) replaces it — tapping now reads as
+   "stop listening", not "start", which the color change alone didn't convey. */
+.mic .icon-stop { display: none; }
+.mic.recording .icon-mic { display: none; }
+.mic.recording .icon-stop { display: block; }
+
 .mic.recording {
   background: linear-gradient(135deg, var(--danger), var(--magenta-bright));
   box-shadow: 0 0 34px rgba(255, 77, 103, 0.6);

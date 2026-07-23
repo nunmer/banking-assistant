@@ -187,7 +187,7 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "Просто скажите своими словами, что вам нужно."
         ),
         "bot_info": (
-            "Я — голосовой ассистент ForteBank по имени AI-nur. Я умею "
+            "Я — голосовой ассистент ForteBank по имени Айнур. Я умею "
             "переводить деньги, работать с картами, открывать вклады, "
             "показывать баланс и выписки, оплачивать счета, а ещё могу "
             "подсказать, куда обратиться. Просто скажите своими словами, что "
@@ -203,7 +203,7 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "аламын. Қажетіңізді өз сөзіңізбен айта салыңыз."
         ),
         "bot_info": (
-            "Мен ForteBank-тің AI-nur атты дауыстық көмекшісімін. Мен ақша "
+            "Мен ForteBank-тің Айнұр атты дауыстық көмекшісімін. Мен ақша "
             "аудара аламын, карталар бойынша көмектесе аламын, депозит аша "
             "аламын, баланс пен үзінді көшірмені көрсете аламын, шоттарды "
             "төлей аламын, сондай-ақ сізге қайда жүгіну керегін айтып бере "
@@ -218,7 +218,7 @@ _SPEECH_OVERRIDES: dict[str, dict[str, str]] = {
             "in your own words."
         ),
         "bot_info": (
-            "I'm AI-nur, ForteBank's voice assistant. I can transfer money, "
+            "I'm Ainur, ForteBank's voice assistant. I can transfer money, "
             "manage your cards, open a deposit, show your balance and "
             "statement, pay bills, or point you to a manager. Just tell me "
             "what you need, in your own words."

@@ -48,13 +48,14 @@ MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~4 MB ≈ well over a minute of voice
 RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
 # A safety cap for arbitrarily long input (mainly the public /api/tts
 # endpoint); truncated to the last full sentence within the cap, and the user
-# reads the rest on screen. Not a hard Yandex API limit (that's ~5000 chars) —
-# just needs enough headroom that our own curated speech overrides never hit
-# it. Kazakh phrasing in particular runs noticeably longer than the Russian/
-# English equivalent for the same content (agglutinative morphology — more
-# suffixes per word) — a bot_info/unknown_intent override that fit under a
-# tighter cap in ru/en overflowed it in kk-KZ and got clipped to its first
-# sentence, cutting off almost the entire reply.
+# reads the rest on screen. Not a hard Yandex API limit — verified live that
+# a 293-char kk-KZ request succeeds reliably; needs enough headroom that our
+# own curated speech overrides never hit it. Kazakh phrasing in particular
+# runs noticeably longer than the Russian/English equivalent for the same
+# content (agglutinative morphology — more suffixes per word) — a bot_info/
+# unknown_intent override that fit under a tighter cap in ru/en overflowed it
+# in kk-KZ and got clipped to its first sentence, cutting off almost the
+# entire reply.
 TTS_MAX_CHARS = 400
 
 # Words that cut the bot off mid-reply in hands-free mode. Checked regardless

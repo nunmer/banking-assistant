@@ -79,6 +79,24 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app = FastAPI(title="Forte Voice Web")
 
 
+@app.middleware("http")
+async def _no_cache_static(request: Request, call_next):
+    """Force revalidation on every load of index.html/app.js/app.css/etc.
+
+    Without this, browsers apply heuristic caching to these files (no
+    Cache-Control was set at all) and can keep serving a stale page after a
+    deploy — this bit us once already (a null-ref crash from a cached page
+    with an outdated DOM shape) and would otherwise keep happening on every
+    UI change. "no-cache" still lets the browser cache the file and get a
+    cheap 304 via the existing ETag/Last-Modified — it just can't skip
+    asking first.
+    """
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 def _speech_headers() -> dict[str, str]:
     return {"X-API-Key": SPEECH_API_KEY} if SPEECH_API_KEY else {}
 

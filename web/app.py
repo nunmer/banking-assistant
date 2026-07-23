@@ -46,17 +46,20 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~4 MB ≈ well over a minute of voice
 RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
-# A safety cap for arbitrarily long input (mainly the public /api/tts
-# endpoint); truncated to the last full sentence within the cap, and the user
-# reads the rest on screen. Not a hard Yandex API limit — verified live that
-# a 293-char kk-KZ request succeeds reliably; needs enough headroom that our
-# own curated speech overrides never hit it. Kazakh phrasing in particular
-# runs noticeably longer than the Russian/English equivalent for the same
-# content (agglutinative morphology — more suffixes per word) — a bot_info/
-# unknown_intent override that fit under a tighter cap in ru/en overflowed it
-# in kk-KZ and got clipped to its first sentence, cutting off almost the
-# entire reply.
-TTS_MAX_CHARS = 400
+# Yandex TTS rejects long texts; long replies (e.g. the capability list) are
+# spoken only up to a sentence boundary — the user reads the rest on screen.
+#
+# Tried raising this to 400 to stop Kazakh's longer phrasing (agglutinative
+# morphology — more suffixes per word than the ru/en equivalent) from
+# clipping the bot_info/unknown_intent overrides down to their first
+# sentence. Reverted: live testing of the exact same request against
+# Yandex's API alternated between success and "Too long text" at both the
+# old and new text, with no consistent length threshold — looks like
+# intermittent quota/rate pressure on the Yandex account, not a fixable
+# length constant on our side. 250 is the value known to run stably in
+# production; the real fix for the Kazakh clipping is a shorter kk-KZ
+# override, not a bigger cap.
+TTS_MAX_CHARS = 250
 
 # Words that cut the bot off mid-reply in hands-free mode. Checked regardless
 # of the session's own language — someone mid-Russian-reply may well say

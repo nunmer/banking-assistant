@@ -291,22 +291,29 @@ async def converse(
 
 @app.websocket("/ws/converse")
 async def ws_converse(websocket: WebSocket) -> None:
-    """Live voice turn: streams mic audio to speechkit for real-time partial
-    captions, then runs the same chat+TTS pipeline as `/api/converse` once
-    the utterance is final — one extra hop (browser -> here -> speechkit ->
-    Yandex) but no Yandex credentials ever leave speechkit.
+    """Hands-free voice conversation over one continuous connection.
+
+    The mic keeps streaming for the whole session — Yandex's own
+    end-of-utterance detector (configured in speechkit's stt_stream engine)
+    decides when the user finished a turn, so the browser never needs a
+    manual "stop recording" tap after the first one. Each detected utterance
+    runs through chat+TTS immediately and the session stays open for the
+    next turn, until the browser explicitly ends it or disconnects.
 
     Protocol with the browser:
       1. Connect, then send {"session_id": ..., "lang": "ru-RU,kk-KZ",
          "user_name": ...}. `user_name` is only present inside Telegram
          (Mini App) and personalises a greeting reply; omitted for an
          anonymous browser session.
-      2. Send binary PCM16LE mono @ 16kHz frames as they're captured.
-      3. Send {"action": "end"} on mic release.
-      4. Server sends {"type": "partial", "text": ...} live as speech is
-         recognised, then one {"type": "reply", message, audio, action,
-         operation} once the turn completes — the same shape `/api/converse`
-         returns, so the client applies it the same way.
+      2. Send binary PCM16LE mono @ 16kHz frames continuously — pause
+         sending while the reply audio is playing (avoids the mic hearing
+         the bot), resume once it ends, no reconnect needed.
+      3. Send {"action": "end"} to leave hands-free mode.
+      4. Server sends {"type": "partial", "text": ...} live per turn, then
+         one {"type": "reply", message, audio, action, operation} per
+         completed utterance — the same shape `/api/converse` returns, so
+         the client applies each one the same way — and keeps going for
+         however many turns happen before "end".
     """
     await websocket.accept()
     try:
@@ -316,8 +323,6 @@ async def ws_converse(websocket: WebSocket) -> None:
     session_id = first.get("session_id") or ""
     lang = first.get("lang") or STT_LANGS
     user_name = first.get("user_name") or None
-
-    final_text = ""
 
     async def browser_to_upstream(upstream) -> None:
         while True:
@@ -338,8 +343,7 @@ async def ws_converse(websocket: WebSocket) -> None:
                     break
         await upstream.send(json.dumps({"action": "end"}))
 
-    async def upstream_to_browser(upstream) -> None:
-        nonlocal final_text
+    async def upstream_to_browser(upstream, client: httpx.AsyncClient) -> None:
         async for raw in upstream:
             event = json.loads(raw)
             kind = event.get("type")
@@ -349,29 +353,28 @@ async def ws_converse(websocket: WebSocket) -> None:
                 except (WebSocketDisconnect, RuntimeError):
                     return
             elif kind == "final":
-                final_text = event.get("text") or final_text
+                text = (event.get("text") or "").strip()
+                if not text:
+                    continue
+                # Runs one full chat+TTS round trip per detected utterance;
+                # the upstream keeps queuing any audio that arrives meanwhile.
+                result = await _run_turn(client, session_id, text, user_name)
+                try:
+                    await websocket.send_json({"type": "reply", **result})
+                except (WebSocketDisconnect, RuntimeError):
+                    return
             elif kind in ("done", "error"):
                 return
 
     try:
-        async with websockets.connect(
-            SPEECH_STREAM_URL, additional_headers=_speech_headers()
-        ) as upstream:
-            await upstream.send(json.dumps({"lang": lang}))
-            await asyncio.gather(
-                browser_to_upstream(upstream), upstream_to_browser(upstream)
-            )
-
-        if not final_text.strip():
-            await websocket.send_json(
-                {"type": "reply", "message": None, "audio": None,
-                 "action": None, "operation": None}
-            )
-            return
-
         async with httpx.AsyncClient(timeout=30.0) as client:
-            result = await _run_turn(client, session_id, final_text.strip(), user_name)
-        await websocket.send_json({"type": "reply", **result})
+            async with websockets.connect(
+                SPEECH_STREAM_URL, additional_headers=_speech_headers()
+            ) as upstream:
+                await upstream.send(json.dumps({"lang": lang}))
+                await asyncio.gather(
+                    browser_to_upstream(upstream), upstream_to_browser(upstream, client)
+                )
     except WebSocketDisconnect:
         pass
     except Exception as e:

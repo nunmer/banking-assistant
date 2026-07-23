@@ -1,12 +1,15 @@
 /* Forte Voice web client.
  *
- * Voice flow: mic tap opens a live WebSocket (/ws/converse) and streams PCM
- * audio as it's captured; partial captions appear while the user is still
- * talking, and a final {message, audio, action, operation} reply arrives once
- * the utterance is recognised — chat+TTS run the same way as before, just
- * triggered by a live transcript instead of a recorded-then-uploaded blob.
+ * Voice flow: one mic tap opens a live WebSocket (/ws/converse) and starts a
+ * hands-free conversation — PCM audio streams continuously and Yandex's own
+ * end-of-utterance detector (server-side) decides when each turn is done, so
+ * there's no manual stop-tap between turns. Partial captions appear while the
+ * user is talking; a {message, audio, action, operation} reply arrives per
+ * completed turn, plays back, and the mic (muted only for that duration, so
+ * it never hears the bot's own voice) picks up again automatically for the
+ * next turn. Tapping the mic/sphere again leaves hands-free mode entirely.
  * Where WebSocket audio capture isn't available, it falls back to the older
- * record-a-blob-then-upload flow (POST /api/converse) with the same result.
+ * one-shot record-a-blob-then-upload flow (POST /api/converse).
  * Typed text always goes through POST /api/chat → {action, message, speech, lang}.
  *
  * Modality follows the user: a spoken request gets a spoken answer (no chat
@@ -153,11 +156,26 @@
     return el;
   }
 
+  // Tracks the currently-shown confirm row/bubble (if any), so a confirmation
+  // answered by VOICE — not a button tap — still gets cleaned up. Button taps
+  // remove their own row directly; clearConfirmUI() is the path for every
+  // other way a pending confirmation gets resolved (spoken yes/no, cancelled,
+  // or superseded by a new request).
+  let activeConfirmUI = null;
+
+  function clearConfirmUI() {
+    if (!activeConfirmUI) return;
+    activeConfirmUI.row.remove();
+    if (activeConfirmUI.bubble) activeConfirmUI.bubble.remove();
+    activeConfirmUI = null;
+  }
+
   function confirmButtons(voice, confirmBubble) {
     // The buttons inherit the modality of the turn that produced them, so a
     // voice conversation stays voice after a tap on Да/Нет.
     // Mirrors Telegram: answering removes the confirmation prompt entirely —
     // the result replaces it rather than piling up underneath.
+    clearConfirmUI(); // never stack two pending confirmations
     const row = document.createElement("div");
     row.className = "confirm-row";
     for (const [key, cls] of [["yes", "yes"], ["no", "no"]]) {
@@ -165,8 +183,7 @@
       btn.textContent = t(key);
       btn.className = cls;
       btn.addEventListener("click", () => {
-        row.remove();
-        if (confirmBubble) confirmBubble.remove();
+        clearConfirmUI();
         ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
         // Confirming before the prompt finished speaking cuts it — the result
         // must never overlap the still-playing question.
@@ -177,6 +194,7 @@
     }
     chatEl.appendChild(row);
     chatEl.scrollTop = chatEl.scrollHeight;
+    activeConfirmUI = { row, bubble: confirmBubble };
   }
 
   // ── Audio level → sphere ───────────────────────────────────────────────
@@ -225,6 +243,7 @@
     }
     stopLevel();
     clearCaption();
+    micPaused = false; // interrupted mid-reply — safe to listen again right away
   }
 
   function newTurn() {
@@ -303,10 +322,13 @@
 
   // ── Recording ──────────────────────────────────────────────────────────
   // Two capture paths share one `recording` flag and one mic-tap gesture:
-  //   - streaming (default): PCM over a live WebSocket, partial captions
-  //     appear while the user is still talking (see startStreamingCapture).
+  //   - streaming (default): PCM over a live WebSocket that stays open for
+  //     the whole hands-free conversation — Yandex's own end-of-utterance
+  //     detector (server-side) decides when each turn is done, so no manual
+  //     stop-tap is needed between turns, only to leave hands-free mode
+  //     entirely (see startStreamingCapture).
   //   - blob (fallback): the older record-then-upload flow, used only if a
-  //     WebSocket/ScriptProcessor can't be set up.
+  //     WebSocket/ScriptProcessor can't be set up — one tap-to-stop per turn.
 
   let recording = false;
   let recStream = null;
@@ -314,6 +336,9 @@
   let ws = null;
   let pcmProcessor = null;
   let recorder = null; // MediaRecorder — fallback path only
+  // True while a reply is playing — the mic stops sending audio so it never
+  // hears the bot's own voice and mistakes it for the next thing to say.
+  let micPaused = false;
 
   const TARGET_RATE = 16000; // PCM rate the streaming STT endpoint expects
 
@@ -371,7 +396,9 @@
       processor.connect(mute);
       mute.connect(ctx.destination);
       processor.onaudioprocess = (e) => {
-        if (socket.readyState !== WebSocket.OPEN) return;
+        // Muted while the reply plays — otherwise the mic hears the bot's
+        // own voice through the speakers and feeds it back as "user speech".
+        if (micPaused || socket.readyState !== WebSocket.OPEN) return;
         const input = e.inputBuffer.getChannelData(0);
         const pcm = floatTo16BitPCM(resampleTo16k(input, ctx.sampleRate));
         socket.send(pcm.buffer);
@@ -584,6 +611,10 @@
       if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
 
       const confirming = data.action === "confirm";
+      // Any new reply resolves whatever confirmation was previously pending —
+      // including one answered by voice, where there's no button click to
+      // remove it. A fresh confirm rebuilds its own row right after.
+      clearConfirmUI();
       if (data.operation) {
         // A completed operation stays in the log as a persistent card — in
         // BOTH modalities. This is the durable record, synced with Telegram.
@@ -609,8 +640,15 @@
       // Only the current turn may reset the UI — an interrupted reply must
       // not stomp the state of the action that interrupted it.
       if (myTurn === turn) {
-        setStatus("idle");
-        Sphere.setMode("idle");
+        // Hands-free mode is still listening for the next turn — "idle"
+        // would wrongly read as "stopped" when the mic is still live.
+        if (recording) {
+          setStatus("listening", true);
+          Sphere.setMode("listening");
+        } else {
+          setStatus("idle");
+          Sphere.setMode("idle");
+        }
       }
     }
   }
@@ -635,6 +673,10 @@
       src.connect(analyser);
       analyser.connect(ctx.destination);
       currentSource = src;
+      // Mute the mic for the duration of playback — otherwise, in hands-free
+      // mode, it would hear this reply through the speakers and stream the
+      // bot's own voice back to Yandex as if it were the user talking.
+      micPaused = true;
 
       Sphere.setMode("speaking");
       setStatus("speaking", true);
@@ -646,10 +688,12 @@
         src.start();
       });
       if (currentSource === src) currentSource = null;
+      micPaused = false;
       stopLevel();
       clearCaption();
     } catch (err) {
       console.error("tts playback:", err);
+      micPaused = false;
       stopLevel();
       clearCaption();
     }

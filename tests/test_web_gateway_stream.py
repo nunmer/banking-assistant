@@ -124,16 +124,66 @@ def test_ws_converse_forwards_user_name_from_first_message():
     assert chat_call["json"]["user_name"] == "Санжар"
 
 
-def test_ws_converse_empty_transcript_short_circuits():
+def test_ws_converse_no_utterance_sends_no_reply():
+    """If the session ends before any final arrives, there's nothing to
+    reply to — no chat call, no empty placeholder reply either."""
+    _StubClient.calls = []
     upstream = _FakeUpstreamConnection([{"type": "done"}])
     fake_connect = _FakeConnect(upstream)
 
-    with patch.object(gateway.websockets, "connect", fake_connect):
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
         with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
             ws.send_json({"session_id": "u-stream-2", "lang": "ru-RU"})
             ws.send_json({"action": "end"})
 
-            reply = ws.receive_json()
+    assert _StubClient.calls == []
 
-    assert reply == {"type": "reply", "message": None, "audio": None,
-                      "action": None, "operation": None}
+
+def test_ws_converse_handles_multiple_turns_in_one_session():
+    """The core hands-free capability: several utterances, detected by
+    Yandex's own end-of-utterance classifier, each get their own reply
+    without the browser reconnecting or re-sending "end" in between."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection(
+        [
+            {"type": "final", "text": "какой у меня баланс"},
+            {"type": "partial", "text": "переве"},
+            {"type": "final", "text": "переведи 1000 тенге на счёт KZ1"},
+            {"type": "done"},
+        ]
+    )
+    fake_connect = _FakeConnect(upstream)
+    _StubClient.responses = [
+        _StubResponse(json_data={"action": "reply", "message": "Баланс: 10000 тенге",
+                                  "speech": None, "lang": "ru-RU"}),   # chat turn 1
+        _StubResponse(content=b"mp3-1"),                              # tts turn 1
+        _StubResponse(json_data={"action": "confirm", "message": "Перевести 1000?",
+                                  "speech": None, "lang": "ru-RU"}),   # chat turn 2
+        _StubResponse(content=b"mp3-2"),                              # tts turn 2
+    ]
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-multi"})
+
+            reply1 = ws.receive_json()
+            partial = ws.receive_json()
+            reply2 = ws.receive_json()
+
+    assert reply1["message"] == "Баланс: 10000 тенге"
+    assert partial == {"type": "partial", "text": "переве"}
+    assert reply2["message"] == "Перевести 1000?"
+    assert reply2["action"] == "confirm"
+
+    # Two separate chat calls, one per detected utterance, same session.
+    chat_calls = [c for c in _StubClient.calls if c["url"].endswith("/chat")]
+    assert len(chat_calls) == 2
+    assert chat_calls[0]["json"]["text"] == "какой у меня баланс"
+    assert chat_calls[1]["json"]["text"] == "переведи 1000 тенге на счёт KZ1"
+    assert all(c["json"]["session_id"] == "u-stream-multi" for c in chat_calls)

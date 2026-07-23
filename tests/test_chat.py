@@ -171,12 +171,12 @@ async def test_chat_greeting_without_name_stays_generic(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_kazakh_greeting_without_name_reports_lang_matching_actual_text(client):
+async def test_chat_kazakh_greeting_without_name_is_kazakh(client):
     """Regression test for the live bug report: an anonymous web session
-    (no Telegram user_name) speaking Kazakh hit kk-KZ's missing plain
-    "greeting" key, fell back to Russian text, but `lang` still said
-    "kk-KZ" — so the client picked the Kazakh voice to read Russian words.
-    `lang` must match whatever text was actually used, every time."""
+    (no Telegram user_name) speaking Kazakh used to hit kk-KZ's missing
+    plain "greeting" key, falling back to Russian text while `lang` still
+    said "kk-KZ" — so the client picked the Kazakh voice to read Russian
+    words. The key is now translated, so this must be a real kk-KZ reply."""
     with (
         patch(
             "orchestrator.services.llm.classify",
@@ -192,10 +192,9 @@ async def test_chat_kazakh_greeting_without_name_reports_lang_matching_actual_te
     assert resp.status_code == 200
     body = resp.json()
     from orchestrator.i18n import t
-    assert body["message"] == t("ru-RU", "greeting")
-    # The voice choice must follow the text — never claim kk-KZ while
-    # speaking Russian fallback words.
-    assert body["lang"] == "ru-RU"
+    assert body["message"] == t("kk-KZ", "greeting")
+    # `lang` must follow the text actually used — kk-KZ here, not a fallback.
+    assert body["lang"] == "kk-KZ"
 
 
 @pytest.mark.asyncio

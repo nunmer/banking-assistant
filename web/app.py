@@ -442,6 +442,18 @@ async def ws_converse(websocket: WebSocket) -> None:
                 except (WebSocketDisconnect, RuntimeError):
                     return
             elif kind in ("done", "error"):
+                # The browser is very likely sitting in "thinking" right now —
+                # it set that the instant the user tapped stop, and is
+                # waiting for *some* message to clear it. A trailing
+                # utterance that was silence, empty, or ambiguous ("was that
+                # even addressed to me?") sends no "reply", so without this
+                # forward there's nothing left to tell the browser the
+                # session is over — it would be stuck until the socket
+                # eventually closes, which it never listens for either.
+                try:
+                    await websocket.send_json(event)
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
                 return
 
     try:

@@ -6,7 +6,6 @@ two styles coexist fine in separate files.
 """
 import asyncio
 import json
-import time
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -268,7 +267,9 @@ def test_ws_converse_ignores_non_interrupt_speech_while_bot_speaking():
 
 def test_ws_converse_suppresses_reply_when_not_understood():
     """Ambient chatter that the classifier can't tie to a real request stays
-    silent instead of interrupting with "I didn't understand"."""
+    silent instead of interrupting with "I didn't understand" — but the
+    browser still needs to hear that the session ended (see the "done"
+    test below), so it can synchronize on that instead of a raw sleep."""
     _StubClient.calls = []
     upstream = _FakeUpstreamConnection(
         [{"type": "final", "text": "и потом мы пошли в кино"}, {"type": "done"}]
@@ -287,13 +288,46 @@ def test_ws_converse_suppresses_reply_when_not_understood():
         with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
             ws.send_json({"session_id": "u-stream-ambient"})
             ws.send_json({"action": "end"})
-            # No "reply" (or anything else) should ever arrive. There's
-            # nothing to synchronize on (the suppressed path sends nothing),
-            # so give the server task a moment to actually finish the turn
-            # before checking what it did.
-            time.sleep(0.15)
+            # No "reply" arrives — only the terminal "done" does.
+            assert ws.receive_json() == {"type": "done"}
 
     # Classification (and, today, a wasted TTS call) still ran server-side,
     # but nothing was ever sent back to the client to interrupt with.
     chat_calls = [c for c in _StubClient.calls if c["url"].endswith("/chat")]
     assert len(chat_calls) == 1
+
+
+def test_ws_converse_forwards_done_so_browser_can_clear_thinking_state():
+    """Regression test: speechkit's "done" event used to be swallowed
+    (kind in ("done", "error"): return, nothing sent to the browser). The
+    browser sets "Thinking…" the instant the user taps stop and was relying
+    on *some* message to clear it — if the trailing utterance was silence
+    (no "final" at all, as here), nothing ever arrived and the UI was stuck
+    on "Thinking…" forever, since there was no onclose handler either."""
+    _StubClient.calls = []
+    upstream = _FakeUpstreamConnection([{"type": "done"}])
+    fake_connect = _FakeConnect(upstream)
+
+    with (
+        patch.object(gateway.websockets, "connect", fake_connect),
+        patch.object(gateway.httpx, "AsyncClient", _StubClient),
+    ):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-done-empty"})
+            ws.send_json({"action": "end"})
+            assert ws.receive_json() == {"type": "done"}
+
+    assert _StubClient.calls == []
+
+
+def test_ws_converse_forwards_upstream_error_to_browser():
+    """Same gap for the "error" branch — speechkit's error must reach the
+    browser too, not just get logged server-side and dropped."""
+    upstream = _FakeUpstreamConnection([{"type": "error", "detail": "gRPC exploded"}])
+    fake_connect = _FakeConnect(upstream)
+
+    with patch.object(gateway.websockets, "connect", fake_connect):
+        with TestClient(gateway.app) as client, client.websocket_connect("/ws/converse") as ws:
+            ws.send_json({"session_id": "u-stream-upstream-error"})
+            ws.send_json({"action": "end"})
+            assert ws.receive_json() == {"type": "error", "detail": "gRPC exploded"}

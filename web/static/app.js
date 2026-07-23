@@ -450,7 +450,26 @@
         bubble(t("error"), "bot error");
         setStatus("idle");
         Sphere.setMode("idle");
+      } else if (data.type === "done") {
+        // The session is over — this is the only signal for it when the
+        // trailing utterance was silence or ambiguous ("was that even
+        // addressed to me?") and so never got a "reply" to reset the UI.
+        if (myTurn !== turn) return; // a newer session already replaced this one
+        finish();
+        setStatus("idle");
+        Sphere.setMode("idle");
       }
+    };
+
+    socket.onclose = () => {
+      // Safety net for any other way the connection could end (network
+      // drop, a server-side exception before even the error message goes
+      // out) — without this, a tap-to-stop that hits one of those leaves
+      // "Thinking…" on screen with nothing left to ever clear it.
+      if (myTurn !== turn) return;
+      finish();
+      setStatus("idle");
+      Sphere.setMode("idle");
     };
 
     ws = socket;

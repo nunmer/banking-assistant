@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter
 
 from orchestrator.config import settings
-from orchestrator.i18n import slot_prompt, speech as i18n_speech, strip_for_speech, t
+from orchestrator.i18n import effective_lang, slot_prompt, speech as i18n_speech, strip_for_speech, t
 from orchestrator.models import ChatRequest, ChatResponse
 from orchestrator.services import (
     affirm,
@@ -50,11 +50,18 @@ def _speech_or_none(message: str, candidate: str) -> str | None:
 
 
 def _reply(lang: str, key: str, *, understood: bool = True, **kwargs: str) -> ChatResponse:
-    """A terminal `t(lang, key)` reply, with its speech variant attached."""
-    msg = t(lang, key, **kwargs)
+    """A terminal `t(lang, key)` reply, with its speech variant attached.
+
+    Reports `effective_lang`, not the requested `lang` — if this language is
+    missing this specific key and `t()` fell back to Russian text, the voice
+    picked from `lang` must fall back right along with it, or a Kazakh voice
+    ends up reading Russian words.
+    """
+    resolved = effective_lang(lang, key)
+    msg = t(resolved, key, **kwargs)
     return ChatResponse(
         action="reply", message=msg,
-        speech=_speech_or_none(msg, i18n_speech(lang, key, **kwargs)), lang=lang,
+        speech=_speech_or_none(msg, i18n_speech(resolved, key, **kwargs)), lang=resolved,
         understood=understood,
     )
 
@@ -167,7 +174,12 @@ async def _advance(
     await slotfill.clear(session_id)
 
     templates: dict = sc.confirm_templates or {}
-    template = templates.get(lang) or sc.confirm_template
+    template = templates.get(lang)
+    # This scenario's per-language templates currently cover every language,
+    # but if one is ever missing, the voice must fall back to Russian right
+    # along with the text — not claim `lang` while reading Russian words.
+    resolved_lang = lang if template else "ru-RU"
+    template = template or sc.confirm_template
     try:
         # Display: currency/enum values as natural words ("KZT" → "тенге").
         msg = template.format(**speechtext.for_display(params, lang))
@@ -185,7 +197,7 @@ async def _advance(
     )
 
     speech = speech if speech and speech != msg else None
-    return ChatResponse(action="confirm", message=msg, speech=speech, lang=lang)
+    return ChatResponse(action="confirm", message=msg, speech=speech, lang=resolved_lang)
 
 
 @router.post("/chat", response_model=ChatResponse)

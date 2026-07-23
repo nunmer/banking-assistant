@@ -171,6 +171,34 @@ async def test_chat_greeting_without_name_stays_generic(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_kazakh_greeting_without_name_reports_lang_matching_actual_text(client):
+    """Regression test for the live bug report: an anonymous web session
+    (no Telegram user_name) speaking Kazakh hit kk-KZ's missing plain
+    "greeting" key, fell back to Russian text, but `lang` still said
+    "kk-KZ" — so the client picked the Kazakh voice to read Russian words.
+    `lang` must match whatever text was actually used, every time."""
+    with (
+        patch(
+            "orchestrator.services.llm.classify",
+            new=AsyncMock(return_value=IntentResult(intent="greeting", params={}, confidence=0.98)),
+        ),
+        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "kk-KZ"})),
+    ):
+        resp = await client.post(
+            "/chat", json={"session_id": "u2h", "text": "Сәлем", "lang": "kk-KZ"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    from orchestrator.i18n import t
+    assert body["message"] == t("ru-RU", "greeting")
+    # The voice choice must follow the text — never claim kk-KZ while
+    # speaking Russian fallback words.
+    assert body["lang"] == "ru-RU"
+
+
+@pytest.mark.asyncio
 async def test_chat_farewell_gets_distinct_reply_from_greeting(client):
     """'Thanks, bye' gets a closing remark, not the 'hello' opener reused."""
     with (

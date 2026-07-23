@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestrator.i18n import _SLOT_PROMPTS, slot_prompt, speech, strip_for_speech, t
+from orchestrator.i18n import _SLOT_PROMPTS, effective_lang, slot_prompt, speech, strip_for_speech, t
 from orchestrator.models import IntentResult
 
 _TRANSFER_SCENARIO = MagicMock(
@@ -70,6 +70,30 @@ class TestI18nHelper:
         assert "отменил" in t("ru-RU", "cancelled")
         assert "тарт" in t("kk-KZ", "cancelled")
         assert "cancelled" in t("en-US", "cancelled").lower()
+
+
+class TestEffectiveLang:
+    def test_present_key_reports_its_own_language(self):
+        assert effective_lang("kk-KZ", "cancelled") == "kk-KZ"
+
+    def test_missing_key_reports_default_lang_not_the_requested_one(self):
+        # Regression guard for the exact bug reported live: kk-KZ's plain
+        # "greeting" was missing (only "greeting_named" existed), so a
+        # nameless Kazakh session got Russian fallback text while `lang`
+        # still claimed "kk-KZ" — driving a Kazakh TTS voice to read Russian
+        # words. effective_lang must report where the text actually came
+        # from, not the language that was merely asked for.
+        import orchestrator.i18n as i18n_module
+
+        original = dict(i18n_module._MESSAGES["kk-KZ"])
+        try:
+            i18n_module._MESSAGES["kk-KZ"].pop("greeting", None)
+            assert effective_lang("kk-KZ", "greeting") == "ru-RU"
+        finally:
+            i18n_module._MESSAGES["kk-KZ"] = original
+
+    def test_unsupported_lang_reports_default(self):
+        assert effective_lang("fr-FR", "cancelled") == "ru-RU"
 
 
 class TestStripForSpeech:

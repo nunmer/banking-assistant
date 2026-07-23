@@ -100,6 +100,22 @@ def t(lang: str, key: str, **kwargs: str) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
+def effective_lang(lang: str, key: str) -> str:
+    """Which language `t(lang, key)` actually answers in.
+
+    Usually just `lang` — but when that language's bucket is missing this
+    specific key, `t()` silently falls back to DEFAULT_LANG text. A caller
+    that then picks a TTS voice from the *original* `lang` ends up reading
+    fallback text with the wrong voice (e.g. a Kazakh voice reading Russian
+    fallback text — sounds broken, not just "wrong language"). Callers that
+    report `lang` alongside `t()`'s text should report this instead, so the
+    voice always matches whatever text actually got used.
+    """
+    if lang in _MESSAGES and key in _MESSAGES[lang]:
+        return lang
+    return DEFAULT_LANG
+
+
 # Emoji/pictographs read fine on screen but make a TTS engine stumble (it either
 # vocalises the symbol's description or drops audio for it) — strip them from
 # anything read aloud that has no dedicated `speech` override below.

@@ -186,6 +186,23 @@ class TestTTSTruncation:
         out = gateway._tts_text("б" * 400)
         assert len(out) == gateway.TTS_MAX_CHARS
 
+    def test_curated_speech_overrides_never_hit_the_cap(self):
+        """Regression guard: the kk-KZ bot_info/unknown_intent overrides once
+        ran past TTS_MAX_CHARS (Kazakh phrasing runs longer than the ru/en
+        equivalent for the same content), silently truncating the whole
+        capability list down to just the opening sentence. A curated
+        speech override is meant to already be TTS-safe in full — if a
+        future one overflows the cap, this should fail loudly instead of
+        only surfacing as "the bot cut itself off" from a live user."""
+        from orchestrator.i18n import _SPEECH_OVERRIDES
+
+        for lang, overrides in _SPEECH_OVERRIDES.items():
+            for key, text in overrides.items():
+                assert len(text) <= gateway.TTS_MAX_CHARS, (
+                    f"{lang}/{key} speech override is {len(text)} chars, "
+                    f"over the {gateway.TTS_MAX_CHARS}-char TTS cap"
+                )
+
 
 @pytest.mark.asyncio
 async def test_tts_uses_kazakh_voice_for_kk(client):

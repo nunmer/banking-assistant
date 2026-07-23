@@ -348,6 +348,15 @@
   let ws = null;
   let pcmProcessor = null;
   let recorder = null; // MediaRecorder — fallback path only
+  // Set right before stopRecording() sends "end" upstream — distinguishes a
+  // deliberate stop from the streaming session ending on its own (e.g.
+  // Yandex's own inactivity timeout after a long pause), which should
+  // reconnect transparently instead of leaving hands-free mode dead.
+  let stopRequested = false;
+  let autoRestartCount = 0;
+  let autoRestartWindowStart = 0;
+  const AUTO_RESTART_LIMIT = 3;
+  const AUTO_RESTART_WINDOW_MS = 10000;
   // True while a reply is playing. The mic is NOT muted during this —
   // it keeps listening so a spoken "stop"/"wait" can interrupt — but the
   // server needs to know this state to tell an interrupt word apart from
@@ -456,8 +465,16 @@
         // addressed to me?") and so never got a "reply" to reset the UI.
         if (myTurn !== turn) return; // a newer session already replaced this one
         finish();
-        setStatus("idle");
-        Sphere.setMode("idle");
+        if (stopRequested) {
+          setStatus("idle");
+          Sphere.setMode("idle");
+        } else {
+          // The user never tapped stop — Yandex's own stream ended on its
+          // own (its inactivity timeout after a long pause is the usual
+          // cause), not a real failure. Reconnect instead of going idle, so
+          // hands-free mode doesn't quietly die mid-conversation.
+          resumeHandsFreeAfterUnsolicitedEnd(myTurn);
+        }
       }
     };
 
@@ -468,8 +485,12 @@
       // "Thinking…" on screen with nothing left to ever clear it.
       if (myTurn !== turn) return;
       finish();
-      setStatus("idle");
-      Sphere.setMode("idle");
+      if (stopRequested) {
+        setStatus("idle");
+        Sphere.setMode("idle");
+      } else {
+        resumeHandsFreeAfterUnsolicitedEnd(myTurn);
+      }
     };
 
     ws = socket;
@@ -514,6 +535,7 @@
     }
     recStream = stream;
     recording = true;
+    stopRequested = false;
 
     const ctx = ensureAudioCtx();
     const analyser = ctx.createAnalyser();
@@ -530,26 +552,34 @@
     if (!startStreamingCapture(ctx, stream, myTurn)) startBlobCapture(stream, myTurn);
   }
 
-  function stopRecording() {
-    micBtn.classList.remove("recording");
-    micBtn.setAttribute("aria-label", t("micStart"));
-    recording = false;
-    Sphere.setMode("thinking");
-    setStatus("thinking", true);
-    micBtn.disabled = true;
-
+  // Releases the mic/audio-graph resources for the CURRENT session without
+  // touching UI state — shared by a deliberate stop and by an unsolicited
+  // reconnect, which need different UI outcomes but the same cleanup.
+  function releaseAudioResources() {
     if (micSource) { micSource.disconnect(); micSource = null; }
     if (recStream) { recStream.getTracks().forEach((tr) => tr.stop()); recStream = null; }
     stopLevel();
-
     if (pcmProcessor) {
       pcmProcessor.onaudioprocess = null;
       pcmProcessor.disconnect();
       pcmProcessor = null;
     }
-    if (ws) {
-      const socket = ws;
-      ws = null;
+    ws = null;
+  }
+
+  function stopRecording() {
+    micBtn.classList.remove("recording");
+    micBtn.setAttribute("aria-label", t("micStart"));
+    recording = false;
+    stopRequested = true;
+    Sphere.setMode("thinking");
+    setStatus("thinking", true);
+    micBtn.disabled = true;
+
+    const socket = ws;
+    releaseAudioResources();
+
+    if (socket) {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: "end" }));
       } else {
@@ -564,6 +594,55 @@
 
     if (recorder && recorder.state !== "inactive") recorder.stop();
     recorder = null;
+  }
+
+  function giveUpHandsFree(message) {
+    recording = false;
+    micBtn.classList.remove("recording");
+    micBtn.setAttribute("aria-label", t("micStart"));
+    micBtn.disabled = false;
+    releaseAudioResources();
+    bubble(message, "bot error");
+    setStatus("idle");
+    Sphere.setMode("idle");
+  }
+
+  // The streaming session ended without the user tapping stop — most often
+  // Yandex's own stream timing out after a long pause, not a real failure.
+  // Reconnect transparently so hands-free mode doesn't quietly die; but cap
+  // how often that can happen in a burst so a genuine outage (speechkit
+  // unreachable, every reconnect immediately dying again) surfaces as a
+  // visible error instead of spinning silently forever.
+  //
+  // Deliberately reconnects only the STT socket, reusing the still-live mic
+  // stream, rather than going through startRecording() (which calls
+  // newTurn() and so would cut off any reply the bot happens to be speaking
+  // right now) — nothing the user did caused this, so it must not sound like
+  // they interrupted the bot.
+  function resumeHandsFreeAfterUnsolicitedEnd(myTurn) {
+    if (myTurn !== turn) return; // a newer session already replaced this one
+    if (!recStream || recStream.getTracks().every((tr) => tr.readyState === "ended")) {
+      giveUpHandsFree(t("micDenied"));
+      return;
+    }
+    const now = Date.now();
+    if (now - autoRestartWindowStart > AUTO_RESTART_WINDOW_MS) {
+      autoRestartWindowStart = now;
+      autoRestartCount = 0;
+    }
+    autoRestartCount += 1;
+    if (autoRestartCount > AUTO_RESTART_LIMIT) {
+      giveUpHandsFree(t("error"));
+      return;
+    }
+    if (pcmProcessor) {
+      pcmProcessor.onaudioprocess = null;
+      pcmProcessor.disconnect();
+      pcmProcessor = null;
+    }
+    if (!startStreamingCapture(ensureAudioCtx(), recStream, myTurn)) {
+      startBlobCapture(recStream, myTurn);
+    }
   }
 
   function recoverFromMicError(err) {
@@ -595,6 +674,9 @@
           stopRecording();
         }
       } else {
+        // A deliberate fresh start shouldn't inherit an unrelated earlier
+        // burst of unsolicited reconnects counted against the auto-restart cap.
+        autoRestartCount = 0;
         startRecording().catch(recoverFromMicError);
       }
     } catch (err) {

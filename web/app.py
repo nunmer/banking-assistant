@@ -9,6 +9,7 @@ Same functionality as the Telegram bot: STT → orchestrator /chat → TTS.
 """
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ from collections import defaultdict, deque
 import httpx
 import websockets
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -501,9 +502,30 @@ async def api_history(request: Request, session_id: str, limit: int = 20) -> dic
     return resp.json()
 
 
+def _asset_version(filename: str) -> str:
+    """Content hash for a static asset — used to cache-bust its URL.
+
+    A Cache-Control header alone isn't enough: it only takes effect on
+    requests a client actually revalidates, and some environments (Telegram's
+    Mini App WebView in particular) are known to cache far more aggressively
+    than that. A URL a client has genuinely never seen before can't be served
+    from any prior cache, browser or otherwise — so index.html's asset links
+    get a query string derived from the file's own content, changing
+    automatically whenever the file does.
+    """
+    with open(os.path.join(STATIC_DIR, filename), "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()[:10]
+
+
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+async def index() -> HTMLResponse:
+    with open(os.path.join(STATIC_DIR, "index.html"), "r", encoding="utf-8") as f:
+        html = f.read()
+    for asset in ("app.css", "app.js", "sphere.js"):
+        html = html.replace(
+            f"/static/{asset}", f"/static/{asset}?v={_asset_version(asset)}"
+        )
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

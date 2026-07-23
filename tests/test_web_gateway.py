@@ -188,6 +188,21 @@ async def test_index_serves_ui(client):
 
 
 @pytest.mark.asyncio
+async def test_index_cache_busts_static_assets(client):
+    """Asset links carry a content-hash query string so a client that cached
+    a previous deploy's app.css/app.js (browser or Telegram's Mini App
+    WebView — both are known to over-cache) is forced onto a URL it has
+    never seen, rather than depending on it noticing the file changed."""
+    resp = await client.get("/")
+    assert resp.status_code == 200
+    import re as _re
+
+    for asset in ("app.css", "app.js", "sphere.js"):
+        match = _re.search(rf"/static/{asset}\?v=([0-9a-f]{{10}})", resp.text)
+        assert match, f"{asset} missing a cache-busting version query"
+
+
+@pytest.mark.asyncio
 async def test_tg_auth_returns_verified_session(client):
     with (
         patch.object(gateway.telegram_auth, "verify_init_data", return_value={"user": "..."}),

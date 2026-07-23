@@ -526,8 +526,20 @@
     // startRecording() is async and called without await, so its errors need
     // a .catch(), not just try/catch (which only sees synchronous throws).
     try {
-      if (recording) stopRecording();
-      else startRecording().catch(recoverFromMicError);
+      if (recording) {
+        if (currentSource) {
+          // The bot is mid-reply — a tap now means "stop talking, I have
+          // something to say", not "end the conversation". Cut the audio
+          // (this also un-mutes the mic) and keep hands-free mode listening.
+          stopSpeaking();
+          setStatus("listening", true);
+          Sphere.setMode("listening");
+        } else {
+          stopRecording();
+        }
+      } else {
+        startRecording().catch(recoverFromMicError);
+      }
     } catch (err) {
       recoverFromMicError(err);
     }

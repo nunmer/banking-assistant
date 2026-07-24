@@ -1,21 +1,21 @@
 /* Forte Voice web client.
  *
- * Voice flow: one mic tap opens a live WebSocket (/ws/converse) and starts a
- * hands-free conversation — PCM audio streams continuously and Yandex's own
- * end-of-utterance detector (server-side) decides when each turn is done, so
- * there's no manual stop-tap between turns. Partial captions appear while the
- * user is talking; a {message, audio, action, operation} reply arrives per
- * completed turn and plays back. The mic stays live even during playback (see
- * setBotSpeaking) so saying "stop"/"wait" cuts the reply off — there's no
- * real echo cancellation, so anything else heard mid-reply is discarded
- * rather than acted on. An utterance that wasn't really addressed to the bot
- * (ambient chatter) gets silently ignored too, instead of an "I didn't
- * understand" interruption — ping-ponging with a person nearby shouldn't
- * trip it. Tapping the mic/sphere leaves hands-free mode entirely (or, mid-
- * reply, just cuts the audio and keeps listening — the manual equivalent of
- * saying "stop").
- * Where WebSocket audio capture isn't available, it falls back to the older
- * one-shot record-a-blob-then-upload flow (POST /api/converse).
+ * Voice flow (default, STREAMING_VOICE_ENABLED = false): tap the mic to
+ * start recording, tap again to stop — one MediaRecorder blob per turn,
+ * uploaded once to POST /api/converse (STT → chat → TTS server-side, HTTP
+ * throughout). Manual, single-turn, matches the pre-streaming behavior.
+ *
+ * A hands-free mode also exists (one mic tap opens a live WebSocket at
+ * /ws/converse — PCM streams continuously and Yandex's own end-of-utterance
+ * detector decides when each turn is done, so there's no manual stop-tap
+ * between turns; partial captions appear live; saying "stop"/"wait" barges
+ * in mid-reply — see setBotSpeaking/_is_interrupt). It was buggy enough in
+ * production to turn off by default; the code (here, in web/app.py's
+ * /ws/converse, and speechkit's stt_stream engine/route) is intentionally
+ * left in place rather than deleted. Flip window.STREAMING_VOICE_ENABLED
+ * (set server-side from the STREAMING_VOICE_ENABLED env var in web/app.py)
+ * back on once it's stable — no code change needed, just .env + restart.
+ *
  * Typed text always goes through POST /api/chat → {action, message, speech, lang}.
  *
  * Modality follows the user: a spoken request gets a spoken answer (no chat
@@ -428,13 +428,17 @@
 
   // ── Recording ──────────────────────────────────────────────────────────
   // Two capture paths share one `recording` flag and one mic-tap gesture:
-  //   - streaming (default): PCM over a live WebSocket that stays open for
-  //     the whole hands-free conversation — Yandex's own end-of-utterance
-  //     detector (server-side) decides when each turn is done, so no manual
-  //     stop-tap is needed between turns, only to leave hands-free mode
-  //     entirely (see startStreamingCapture).
-  //   - blob (fallback): the older record-then-upload flow, used only if a
-  //     WebSocket/ScriptProcessor can't be set up — one tap-to-stop per turn.
+  //   - streaming (hands-free, currently disabled — see STREAMING_VOICE_ENABLED
+  //     above): PCM over a live WebSocket that stays open for the whole
+  //     conversation — Yandex's own end-of-utterance detector (server-side)
+  //     decides when each turn is done, so no manual stop-tap is needed
+  //     between turns, only to leave hands-free mode entirely (see
+  //     startStreamingCapture).
+  //   - blob (current default): the older record-then-upload flow — one
+  //     tap-to-stop per turn. Also used as a fallback if streaming is
+  //     enabled but a WebSocket/ScriptProcessor can't be set up.
+
+  const STREAMING_VOICE_ENABLED = window.STREAMING_VOICE_ENABLED === true;
 
   let recording = false;
   let recStream = null;
@@ -643,7 +647,9 @@
     Sphere.setMode("listening");
     setStatus("listening", true);
 
-    if (!startStreamingCapture(ctx, stream, myTurn)) startBlobCapture(stream, myTurn);
+    if (!STREAMING_VOICE_ENABLED || !startStreamingCapture(ctx, stream, myTurn)) {
+      startBlobCapture(stream, myTurn);
+    }
   }
 
   // Releases the mic/audio-graph resources for the CURRENT session without

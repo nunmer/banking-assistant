@@ -38,6 +38,15 @@ SPEECH_STREAM_URL = os.getenv(
 )
 SPEECH_API_KEY = os.getenv("SPEECH_API_KEY", "")
 STT_LANGS = os.getenv("STT_LANGS", "ru-RU,kk-KZ")
+# Hands-free streaming (live PCM over /ws/converse, gRPC to Yandex) is buggy
+# in production. Kept in place (route, engine, JS path all still work if hit
+# directly) but OFF by default — the client instead uses the older tap-to-
+# stop, one-shot-recording flow (POST /api/converse, HTTP to speechkit's
+# batch /stt/recognize). Flip via .env + `docker compose up -d` (no rebuild
+# needed) to re-enable once the streaming path is stable again.
+STREAMING_VOICE_ENABLED = os.getenv("STREAMING_VOICE_ENABLED", "false").strip().lower() in (
+    "1", "true", "yes", "on",
+)
 TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "marina")
 TTS_VOICE_KK = os.getenv("TTS_VOICE_KK", "amira")
 TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "marina")
@@ -580,6 +589,11 @@ async def index() -> HTMLResponse:
         html = html.replace(
             f"/static/{asset}", f"/static/{asset}?v={_asset_version(asset)}"
         )
+    flag = "true" if STREAMING_VOICE_ENABLED else "false"
+    html = html.replace(
+        '<script src="/static/sphere.js',
+        f'<script>window.STREAMING_VOICE_ENABLED = {flag};</script>\n  <script src="/static/sphere.js',
+    )
     return HTMLResponse(html)
 
 

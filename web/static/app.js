@@ -53,6 +53,11 @@
   // session, and never guessed client-side.
   let userName = null;
 
+  // Telegram @handle ("tg nick") — separate from userName (first name).
+  // Never shown in any reply; only used server-side for the admin panel's
+  // session search. Same availability as userName (Mini App only).
+  let username = null;
+
   // ── Telegram Mini App integration + startup ────────────────────────────
   const tg = window.Telegram && window.Telegram.WebApp;
 
@@ -73,6 +78,7 @@
           const data = await r.json();
           if (data.session_id) sessionId = data.session_id;
           if (data.user_name) userName = data.user_name;
+          if (data.username) username = data.username;
         }
       } catch {} // unverified → keep the anonymous browser session
     }
@@ -249,6 +255,15 @@
   function setStatus(key, active) {
     statusEl.textContent = t(key);
     statusEl.classList.toggle("active", Boolean(active));
+    // "Thinking…" is easy to miss as a static, dim line under the sphere —
+    // pulse it so waiting for the STT→chat→TTS round trip (often a couple of
+    // seconds) reads as clearly "working", not indistinguishable from idle.
+    statusEl.classList.toggle("thinking", key === "thinking");
+    // A second, much more prominent signal front-and-center over the sphere
+    // (see showThinkingIndicator) — the small status line alone wasn't
+    // enough for users to notice the bot had registered their message at all.
+    if (key === "thinking") showThinkingIndicator();
+    else if (key === "idle") clearCaption();
   }
 
   // ── Chat log ───────────────────────────────────────────────────────────
@@ -410,6 +425,21 @@
     if (captionEl) captionEl.innerHTML = "";
   }
 
+  // A small, dim status line below the sphere was easy to miss entirely
+  // while waiting for the STT→chat→TTS round trip (which can genuinely take
+  // several seconds) — this puts a classic three-dot "processing" indicator
+  // front-and-center in the same glowing spot the reply caption itself uses,
+  // impossible to miss, using visual language (bouncing dots) universally
+  // recognized from messaging apps rather than a subtle color/text change.
+  function showThinkingIndicator() {
+    if (!captionEl) return;
+    clearCaption();
+    const wrap = document.createElement("span");
+    wrap.className = "caption-block thinking-dots";
+    wrap.innerHTML = "<span></span><span></span><span></span>";
+    captionEl.appendChild(wrap);
+  }
+
   function playCaption(text, totalMs) {
     const blocks = splitIntoBlocks(text);
     const perBlock = Math.max(900, totalMs / blocks.length);
@@ -514,7 +544,7 @@
     };
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ session_id: sessionId, user_name: userName }));
+      socket.send(JSON.stringify({ session_id: sessionId, user_name: userName, username }));
       micSource.connect(processor);
       // ScriptProcessorNode only fires onaudioprocess while connected into the
       // graph toward the destination — route through a silent gain node so
@@ -611,9 +641,24 @@
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: mime || "audio/webm" });
       if (blob.size > 800) handleRecording(blob, myTurn);
-      else { micBtn.disabled = false; setStatus("idle"); Sphere.setMode("idle"); }
+      else {
+        // A near-empty blob (no ondataavailable chunk ever arrived, or only a
+        // container header) has looked, from the outside, exactly like the
+        // untouched idle state — no error, no "thinking" flash, nothing — as
+        // if the tap never registered. Telegram's in-app WebView is the one
+        // place this has actually been reported; the honest-feedback bubble
+        // at least tells the user to retry instead of leaving them guessing.
+        micBtn.disabled = false;
+        setStatus("idle");
+        Sphere.setMode("idle");
+        bubble(t("error"), "bot error");
+      }
     };
-    recorder.start();
+    // A periodic timeslice (rather than relying on one flush at stop()) is
+    // the standard MediaRecorder robustness fix for WebViews whose stop-time
+    // flush can be empty or truncated for a short recording — chunks arrive
+    // throughout instead of depending on a single end-of-recording delivery.
+    recorder.start(250);
   }
 
   async function startRecording() {
@@ -795,6 +840,7 @@
       const fd = new FormData();
       fd.append("session_id", sessionId);
       if (userName) fd.append("user_name", userName);
+      if (username) fd.append("username", username);
       const ext = blob.type.includes("mp4") ? "m4a" : "webm";
       fd.append("file", blob, `voice.${ext}`);
       const resp = await fetch("/api/converse", { method: "POST", body: fd });
@@ -836,6 +882,7 @@
         fd.append("session_id", sessionId);
         fd.append("text", text);
         if (userName) fd.append("user_name", userName);
+        if (username) fd.append("username", username);
         const resp = await fetch("/api/converse", { method: "POST", body: fd });
         if (!resp.ok) throw new Error(`converse ${resp.status}`);
         data = await resp.json();
@@ -843,7 +890,7 @@
         const resp = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, text, user_name: userName }),
+          body: JSON.stringify({ session_id: sessionId, text, user_name: userName, username }),
         });
         if (!resp.ok) throw new Error(`chat ${resp.status}`);
         data = await resp.json();

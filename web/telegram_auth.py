@@ -71,3 +71,9 @@ def user_name_from(fields: dict) -> str | None:
     """Extract the Telegram first name, for personalising a greeting reply."""
     name = _user_dict(fields).get("first_name")
     return str(name) if name else None
+
+
+def username_from(fields: dict) -> str | None:
+    """Extract the Telegram @handle ("tg nick"), for admin-panel session search."""
+    handle = _user_dict(fields).get("username")
+    return str(handle) if handle else None

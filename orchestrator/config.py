@@ -25,9 +25,24 @@ class Settings(BaseSettings):
     SLOTFILL_TTL: int = 300
     # Session TTL (seconds) — 24h.
     SESSION_TTL: int = 60 * 60 * 24
+    # Conversation-window idle timeout (seconds) — same "state simply expires
+    # and looks fresh next time" idea as CONFIRM_TTL/SLOTFILL_TTL above,
+    # applied to the whole visit: a new turn arriving after this long a gap
+    # starts a new window for grouping the durable transcript (see
+    # services/session_window.py). Does not affect account lookups, operation
+    # history, language preference, or pending confirm/slot-fill — those stay
+    # keyed by the permanent identity regardless of how long it's been.
+    SESSION_WINDOW_TIMEOUT: int = 30 * 60
 
     # Minimum LLM confidence to act on an intent.
     MIN_CONFIDENCE: float = 0.4
+
+    # Admin panel (routers/admin.py) — Basic Auth. Intentionally weak default
+    # per explicit pilot-stage instruction; the primary protection boundary is
+    # meant to be the web gateway's own Basic Auth in front of this (defense
+    # in depth, since this port's network exposure wasn't verified).
+    ADMIN_USER: str = "admin"
+    ADMIN_PASSWORD: str = "admin"
 
 
 settings = Settings()

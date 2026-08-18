@@ -41,8 +41,16 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Admin panel log viewer (web/admin/docker_logs.py) — read access to
+      # every container on this daemon, including other compose projects
+      # (e.g. speechkit). See the admin-panel plan for the security tradeoff
+      # this represents; deliberate, not an oversight.
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       orchestrator:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request, ssl; urllib.request.urlopen('https://localhost:8443/health', context=ssl._create_unverified_context())"]

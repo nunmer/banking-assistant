@@ -46,6 +46,14 @@ class _StubClient:
             return _StubClient.responses.pop(0)
         return _StubClient.response
 
+    async def request(self, method, url, **kwargs):
+        # Used by web/admin/routes.py's orchestrator proxy (GET/POST/PUT).
+        _StubClient.last_call = {"method": method, "url": url, **kwargs}
+        _StubClient.calls.append(_StubClient.last_call)
+        if _StubClient.responses:
+            return _StubClient.responses.pop(0)
+        return _StubClient.response
+
 
 @pytest.fixture
 async def client():
@@ -80,6 +88,8 @@ async def test_chat_proxies_to_orchestrator(client):
     assert _StubClient.last_call["json"]["session_id"] == "web-1"
     assert _StubClient.last_call["json"]["channel"] == "web"  # history attribution
     assert "user_name" not in _StubClient.last_call["json"]  # none given → omitted
+    # Every turn gets its own correlation id for the admin panel's debug trace.
+    assert _StubClient.last_call["json"]["turn_id"]
 
 
 @pytest.mark.asyncio
@@ -96,6 +106,21 @@ async def test_chat_forwards_user_name_when_given(client):
         )
     assert resp.status_code == 200
     assert _StubClient.last_call["json"]["user_name"] == "Санжар"
+
+
+@pytest.mark.asyncio
+async def test_chat_forwards_username_when_given(client):
+    """The Telegram @handle ("tg nick") — separate from user_name (first
+    name) — is forwarded too, for admin-panel session search."""
+    _StubClient.response = _StubResponse(
+        json_data={"action": "reply", "message": "Здравствуйте!", "speech": None, "lang": "ru-RU"}
+    )
+    with patch.object(gateway.httpx, "AsyncClient", _StubClient):
+        await client.post(
+            "/api/chat",
+            json={"session_id": "web-1c", "text": "привет", "username": "sanzhar_k"},
+        )
+    assert _StubClient.last_call["json"]["username"] == "sanzhar_k"
 
 
 @pytest.mark.asyncio
@@ -267,10 +292,11 @@ async def test_tg_auth_returns_verified_session(client):
         patch.object(gateway.telegram_auth, "verify_init_data", return_value={"user": "..."}),
         patch.object(gateway.telegram_auth, "user_id_from", return_value="42"),
         patch.object(gateway.telegram_auth, "user_name_from", return_value="Sanzhar"),
+        patch.object(gateway.telegram_auth, "username_from", return_value="sanzhar_k"),
     ):
         resp = await client.post("/api/tg-auth", json={"init_data": "signed-blob"})
     assert resp.status_code == 200
-    assert resp.json() == {"session_id": "42", "user_name": "Sanzhar"}
+    assert resp.json() == {"session_id": "42", "user_name": "Sanzhar", "username": "sanzhar_k"}
 
 
 @pytest.mark.asyncio
@@ -280,9 +306,11 @@ async def test_converse_voice_single_round_trip(client):
 
     _StubClient.responses = [
         _StubResponse(json_data={"text": "переведи 5000"}),                    # stt
+        _StubResponse(),                                                        # stt debug event push
         _StubResponse(json_data={"action": "collect", "message": "Кому?",
                                  "speech": None, "lang": "ru-RU"}),            # chat
         _StubResponse(content=b"mp3bytes"),                                    # tts
+        _StubResponse(),                                                        # tts debug event push
     ]
     with (
         patch.object(gateway, "_to_wav", new=AsyncMock(return_value=b"RIFF")),
@@ -299,9 +327,11 @@ async def test_converse_voice_single_round_trip(client):
     assert body["message"] == "Кому?"
     assert body["action"] == "collect"
     assert b64.b64decode(body["audio"]) == b"mp3bytes"
-    # Exactly three backend calls, in pipeline order, within one request.
+    # Pipeline order, including the two debug-trace pushes to /debug/events.
     urls = [c["url"] for c in _StubClient.calls]
-    assert [u.rsplit("/", 1)[-1] for u in urls] == ["recognize", "chat", "synthesize"]
+    assert [u.rsplit("/", 1)[-1] for u in urls] == [
+        "recognize", "events", "chat", "synthesize", "events",
+    ]
 
 
 @pytest.mark.asyncio
@@ -314,6 +344,7 @@ async def test_converse_text_turn_returns_audio(client):
                                  "speech": None, "lang": "ru-RU",
                                  "operation": operation}),                     # chat
         _StubResponse(content=b"okbytes"),                                     # tts
+        _StubResponse(),                                                        # tts debug event push
     ]
     with patch.object(gateway.httpx, "AsyncClient", _StubClient):
         resp = await client.post(
@@ -335,6 +366,7 @@ async def test_converse_forwards_user_name_to_chat(client):
         _StubResponse(json_data={"action": "reply", "message": "Привет, Санжар!",
                                  "speech": None, "lang": "ru-RU"}),
         _StubResponse(content=b"okbytes"),
+        _StubResponse(),  # tts debug event push
     ]
     with patch.object(gateway.httpx, "AsyncClient", _StubClient):
         await client.post(
@@ -348,7 +380,10 @@ async def test_converse_forwards_user_name_to_chat(client):
 @pytest.mark.asyncio
 async def test_converse_empty_transcript_short_circuits(client):
     """Unintelligible audio returns early — no chat, no TTS."""
-    _StubClient.responses = [_StubResponse(json_data={"text": "  "})]  # stt only
+    _StubClient.responses = [
+        _StubResponse(json_data={"text": "  "}),  # stt
+        _StubResponse(),                            # stt debug event push
+    ]
     with (
         patch.object(gateway, "_to_wav", new=AsyncMock(return_value=b"RIFF")),
         patch.object(gateway.httpx, "AsyncClient", _StubClient),
@@ -360,7 +395,7 @@ async def test_converse_empty_transcript_short_circuits(client):
         )
     assert resp.status_code == 200
     assert resp.json()["transcript"] == ""
-    assert len(_StubClient.calls) == 1  # stopped after stt
+    assert len(_StubClient.calls) == 2  # stt + its debug event push, stopped before chat/tts
 
 
 @pytest.mark.asyncio

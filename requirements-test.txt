@@ -11,3 +11,6 @@ asyncpg==0.30.0
 redis==5.2.1
 alembic==1.14.0
 fpdf2==2.8.7
+# web gateway deps needed by tests
+websockets==15.0.1
+docker==7.1.0

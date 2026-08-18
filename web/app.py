@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections import defaultdict, deque
 
 import httpx
@@ -25,6 +26,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from web import telegram_auth
+from web.admin import runtime_config
+from web.admin.routes import router as admin_router
 
 logger = logging.getLogger("web.gateway")
 
@@ -113,7 +116,11 @@ async def _no_cache_static(request: Request, call_next):
     asking first.
     """
     response = await call_next(request)
-    if request.url.path == "/" or request.url.path.startswith("/static/"):
+    if (
+        request.url.path == "/"
+        or request.url.path == "/admin"
+        or request.url.path.startswith("/static/")
+    ):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -122,22 +129,40 @@ def _speech_headers() -> dict[str, str]:
     return {"X-API-Key": SPEECH_API_KEY} if SPEECH_API_KEY else {}
 
 
-def _voice_for_lang(lang: str | None) -> str:
+async def _push_debug_event(session_id: str, turn_id: str, step: str, detail: dict) -> None:
+    """Record a pipeline step this gateway owns (STT/TTS) for the admin
+    panel's per-turn debug trace. Best-effort: a failure here must never
+    break the user-facing flow, same as every other cross-service call in
+    this codebase (see orchestrator's history/conversation services).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{ORCHESTRATOR_URL}/debug/events",
+                json={"session_id": session_id, "turn_id": turn_id, "step": step, "detail": detail},
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.error("failed to push debug event (turn=%s, step=%s): %s", turn_id, step, e)
+
+
+def _voice_for_lang(lang: str | None, cfg: dict) -> str:
     code = (lang or "ru-RU")[:2].lower()
-    return {"kk": TTS_VOICE_KK, "ru": TTS_VOICE_RU}.get(code, TTS_VOICE_DEFAULT)
+    return {"kk": cfg["tts_voice_kk"], "ru": cfg["tts_voice_ru"]}.get(
+        code, cfg["tts_voice_default"]
+    )
 
 
 # ── Per-IP sliding-window rate limit (in-memory; single-instance pilot) ──────
 _hits: dict[str, deque] = defaultdict(deque)
 
 
-def _rate_limit(request: Request) -> None:
+async def _rate_limit(request: Request, limit: int = RATE_LIMIT_PER_MIN) -> None:
     ip = request.client.host if request.client else "unknown"
     now = time.monotonic()
     window = _hits[ip]
     while window and now - window[0] > 60:
         window.popleft()
-    if len(window) >= RATE_LIMIT_PER_MIN:
+    if len(window) >= limit:
         raise HTTPException(status_code=429, detail="Too many requests")
     window.append(now)
 
@@ -163,11 +188,11 @@ async def _to_wav(audio: bytes) -> bytes:
     return out
 
 
-def _tts_text(text: str) -> str:
+def _tts_text(text: str, max_chars: int = TTS_MAX_CHARS) -> str:
     """Trim overly long replies to the last sentence boundary within the cap."""
-    if len(text) <= TTS_MAX_CHARS:
+    if len(text) <= max_chars:
         return text
-    cut = text[:TTS_MAX_CHARS]
+    cut = text[:max_chars]
     best = max(cut.rfind(sep) for sep in (". ", "! ", "? ", "\n"))
     return cut[: best + 1].strip() if best > 0 else cut.strip()
 
@@ -176,6 +201,7 @@ class ChatIn(BaseModel):
     session_id: str
     text: str
     user_name: str | None = None
+    username: str | None = None
 
 
 class TTSIn(BaseModel):
@@ -194,14 +220,19 @@ async def tg_auth(request: Request, body: TgAuthIn) -> dict:
     The returned session_id is the Telegram user id — the same id the chat bot
     uses — so a conversation started in Telegram continues in the Mini App.
     """
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     fields = telegram_auth.verify_init_data(body.init_data, TELEGRAM_TOKEN)
     if fields is None:
         raise HTTPException(status_code=401, detail="Invalid Telegram init data")
     uid = telegram_auth.user_id_from(fields)
     if uid is None:
         raise HTTPException(status_code=401, detail="No user in init data")
-    return {"session_id": uid, "user_name": telegram_auth.user_name_from(fields)}
+    return {
+        "session_id": uid,
+        "user_name": telegram_auth.user_name_from(fields),
+        "username": telegram_auth.username_from(fields),
+    }
 
 
 @app.get("/health")
@@ -212,7 +243,8 @@ async def health() -> dict:
 @app.post("/api/stt")
 async def stt(request: Request, file: UploadFile = File(...)) -> dict:
     """Browser audio → speech-service /stt/recognize (multi-lang autodetect)."""
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     audio = await file.read()
     if not audio:
         raise HTTPException(status_code=400, detail="Empty audio")
@@ -224,7 +256,7 @@ async def stt(request: Request, file: UploadFile = File(...)) -> dict:
         resp = await client.post(
             f"{SPEECH_SERVICE_URL}/stt/recognize",
             files={"file": ("audio.wav", wav, "audio/wav")},
-            data={"lang": STT_LANGS},
+            data={"lang": cfg["stt_langs"]},
             headers=_speech_headers(),
         )
     if resp.status_code != 200:
@@ -236,12 +268,18 @@ async def stt(request: Request, file: UploadFile = File(...)) -> dict:
 @app.post("/api/chat")
 async def chat(request: Request, body: ChatIn) -> dict:
     """Forward a user utterance to the orchestrator, verbatim contract."""
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
-    payload = {"session_id": body.session_id, "text": body.text, "channel": "web"}
+    payload = {
+        "session_id": body.session_id, "text": body.text, "channel": "web",
+        "turn_id": str(uuid.uuid4()),
+    }
     if body.user_name:
         payload["user_name"] = body.user_name
+    if body.username:
+        payload["username"] = body.username
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(f"{ORCHESTRATOR_URL}/chat", json=payload)
     if resp.status_code != 200:
@@ -251,18 +289,30 @@ async def chat(request: Request, body: ChatIn) -> dict:
 
 
 async def _run_turn(
-    client: httpx.AsyncClient, session_id: str, user_text: str, user_name: str | None = None
+    client: httpx.AsyncClient,
+    session_id: str,
+    user_text: str,
+    user_name: str | None,
+    cfg: dict,
+    *,
+    turn_id: str,
+    username: str | None = None,
 ) -> dict:
     """Chat → TTS for one already-transcribed utterance.
 
     Shared by the batch `/api/converse` endpoint and the live `/ws/converse`
     streaming route — both need the exact same reply shape once they have
     text, they just get that text via different paths (one STT call vs.
-    live partial/final events).
+    live partial/final events). `cfg` is fetched once by the caller (see
+    web.admin.runtime_config) rather than re-fetched here per turn. `turn_id`
+    correlates this turn's orchestrator-side debug events (classify/enrich/
+    mib_execute) with the `tts` event logged below.
     """
-    payload = {"session_id": session_id, "text": user_text, "channel": "web"}
+    payload = {"session_id": session_id, "text": user_text, "channel": "web", "turn_id": turn_id}
     if user_name:
         payload["user_name"] = user_name
+    if username:
+        payload["username"] = username
     chat_resp = await client.post(f"{ORCHESTRATOR_URL}/chat", json=payload)
     if chat_resp.status_code != 200:
         logger.error("orchestrator failed %s: %s", chat_resp.status_code, chat_resp.text[:300])
@@ -271,14 +321,15 @@ async def _run_turn(
 
     # Synthesize the spoken reply; on failure the client falls back to text.
     audio_b64 = None
-    speak_text = _tts_text(data.get("speech") or data.get("message") or "")
+    speak_text = _tts_text(data.get("speech") or data.get("message") or "", cfg["tts_max_chars"])
     if speak_text:
+        voice = _voice_for_lang(data.get("lang"), cfg)
         tts_resp = await client.post(
             f"{SPEECH_SERVICE_URL}/tts/synthesize",
             json={
                 "text": speak_text,
                 "lang": data.get("lang") or "ru-RU",
-                "voice": _voice_for_lang(data.get("lang")),
+                "voice": voice,
                 "format": "MP3",
             },
             headers=_speech_headers(),
@@ -287,6 +338,13 @@ async def _run_turn(
             audio_b64 = base64.b64encode(tts_resp.content).decode()
         else:
             logger.error("TTS failed %s: %s", tts_resp.status_code, tts_resp.text[:300])
+        await _push_debug_event(
+            session_id, turn_id, "tts",
+            {
+                "text": speak_text, "voice": voice, "lang": data.get("lang") or "ru-RU",
+                "success": tts_resp.status_code == 200,
+            },
+        )
 
     return {
         "message": data.get("message"),
@@ -313,6 +371,7 @@ async def converse(
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
     user_name: str | None = Form(None),
+    username: str | None = Form(None),
 ) -> dict:
     """One-round-trip voice turn: STT → chat → TTS, all server-side.
 
@@ -327,7 +386,9 @@ async def converse(
     captions); this endpoint remains for text-mode turns and as a fallback
     where WebSocket/AudioWorklet capture isn't available.
     """
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
+    turn_id = str(uuid.uuid4())
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         transcript = None
@@ -341,13 +402,17 @@ async def converse(
             stt_resp = await client.post(
                 f"{SPEECH_SERVICE_URL}/stt/recognize",
                 files={"file": ("audio.wav", wav, "audio/wav")},
-                data={"lang": STT_LANGS},
+                data={"lang": cfg["stt_langs"]},
                 headers=_speech_headers(),
             )
             if stt_resp.status_code != 200:
                 logger.error("STT failed %s: %s", stt_resp.status_code, stt_resp.text[:300])
                 raise HTTPException(status_code=502, detail="Speech recognition failed")
             transcript = stt_resp.json().get("text", "").strip()
+            await _push_debug_event(
+                session_id, turn_id, "stt",
+                {"lang": cfg["stt_langs"], "transcript": transcript, "audio_bytes": len(audio)},
+            )
             if not transcript:
                 return {"transcript": "", "message": None, "action": None,
                         "lang": None, "audio": None}
@@ -356,7 +421,9 @@ async def converse(
         if not user_text:
             raise HTTPException(status_code=400, detail="No audio or text given")
 
-        result = await _run_turn(client, session_id, user_text, user_name)
+        result = await _run_turn(
+            client, session_id, user_text, user_name, cfg, turn_id=turn_id, username=username
+        )
 
     return {"transcript": transcript, **result}
 
@@ -403,9 +470,11 @@ async def ws_converse(websocket: WebSocket) -> None:
         first = await websocket.receive_json()
     except WebSocketDisconnect:
         return
+    cfg = await runtime_config.get_config()
     session_id = first.get("session_id") or ""
-    lang = first.get("lang") or STT_LANGS
+    lang = first.get("lang") or cfg["stt_langs"]
     user_name = first.get("user_name") or None
+    username = first.get("username") or None
     bot_speaking = False
 
     async def browser_to_upstream(upstream) -> None:
@@ -454,9 +523,16 @@ async def ws_converse(websocket: WebSocket) -> None:
                         except (WebSocketDisconnect, RuntimeError):
                             return
                     continue
+                # Each detected utterance is its own turn.
+                turn_id = str(uuid.uuid4())
+                await _push_debug_event(
+                    session_id, turn_id, "stt", {"lang": lang, "transcript": text}
+                )
                 # Runs one full chat+TTS round trip per detected utterance;
                 # the upstream keeps queuing any audio that arrives meanwhile.
-                result = await _run_turn(client, session_id, text, user_name)
+                result = await _run_turn(
+                    client, session_id, text, user_name, cfg, turn_id=turn_id, username=username
+                )
                 if not result.get("understood", True):
                     # Low-confidence read — the LLM itself unsure what it
                     # even heard — is the one case that can plausibly be
@@ -509,16 +585,17 @@ async def ws_converse(websocket: WebSocket) -> None:
 @app.post("/api/tts")
 async def tts(request: Request, body: TTSIn) -> Response:
     """Synthesize a reply as MP3 (plays natively in every browser, incl. iOS)."""
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"{SPEECH_SERVICE_URL}/tts/synthesize",
             json={
-                "text": _tts_text(body.text),
+                "text": _tts_text(body.text, cfg["tts_max_chars"]),
                 "lang": body.lang or "ru-RU",
-                "voice": _voice_for_lang(body.lang),
+                "voice": _voice_for_lang(body.lang, cfg),
                 "format": "MP3",
             },
             headers=_speech_headers(),
@@ -532,7 +609,8 @@ async def tts(request: Request, body: TTSIn) -> Response:
 @app.get("/api/history")
 async def api_history(request: Request, session_id: str, limit: int = 20) -> dict:
     """Recent executed operations for this session (shared with Telegram)."""
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             f"{ORCHESTRATOR_URL}/history/{session_id}", params={"limit": limit}
@@ -551,7 +629,8 @@ async def api_statement_pdf(request: Request, tx_id: str) -> Response:
     holds the actual bytes, cached there under a short TTL — this just
     proxies the fetch and adds the headers that make a browser download it.
     """
-    _rate_limit(request)
+    cfg = await runtime_config.get_config()
+    await _rate_limit(request, cfg["rate_limit_per_min"])
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(f"{ORCHESTRATOR_URL}/document/statement/{tx_id}")
     if resp.status_code == 404:
@@ -589,7 +668,8 @@ async def index() -> HTMLResponse:
         html = html.replace(
             f"/static/{asset}", f"/static/{asset}?v={_asset_version(asset)}"
         )
-    flag = "true" if STREAMING_VOICE_ENABLED else "false"
+    cfg = await runtime_config.get_config()
+    flag = "true" if cfg["streaming_voice_enabled"] else "false"
     html = html.replace(
         '<script src="/static/sphere.js',
         f'<script>window.STREAMING_VOICE_ENABLED = {flag};</script>\n  <script src="/static/sphere.js',
@@ -597,4 +677,5 @@ async def index() -> HTMLResponse:
     return HTMLResponse(html)
 
 
+app.include_router(admin_router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

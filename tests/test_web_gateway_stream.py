@@ -70,10 +70,12 @@ def test_ws_converse_relays_partials_then_sends_final_reply():
     operation = {"summary": "Перевод 5000", "status": "success",
                  "tx_id": "MOCK-1", "channel": "web"}
     _StubClient.responses = [
+        _StubResponse(),                                     # stt debug event push
         _StubResponse(json_data={"action": "reply", "message": "Готово!",
                                   "speech": None, "lang": "ru-RU",
                                   "operation": operation}),  # chat
         _StubResponse(content=b"mp3bytes"),                 # tts
+        _StubResponse(),                                     # tts debug event push
     ]
 
     with (
@@ -95,7 +97,7 @@ def test_ws_converse_relays_partials_then_sends_final_reply():
     assert reply["audio"] is not None
 
     # The chat call used the FINAL transcript, not the partial fragment.
-    chat_call = _StubClient.calls[0]
+    chat_call = next(c for c in _StubClient.calls if c["url"].endswith("/chat"))
     assert chat_call["json"]["text"] == "переведи 5000 на счёт"
     assert chat_call["json"]["session_id"] == "u-stream-1"
 
@@ -113,9 +115,11 @@ def test_ws_converse_forwards_user_name_from_first_message():
     )
     fake_connect = _FakeConnect(upstream)
     _StubClient.responses = [
+        _StubResponse(),  # stt debug event push
         _StubResponse(json_data={"action": "reply", "message": "Привет, Санжар!",
                                   "speech": None, "lang": "ru-RU"}),
         _StubResponse(content=b"mp3bytes"),
+        _StubResponse(),  # tts debug event push
     ]
 
     with (
@@ -127,7 +131,7 @@ def test_ws_converse_forwards_user_name_from_first_message():
             ws.send_json({"action": "end"})
             ws.receive_json()
 
-    chat_call = _StubClient.calls[0]
+    chat_call = next(c for c in _StubClient.calls if c["url"].endswith("/chat"))
     assert chat_call["json"]["user_name"] == "Санжар"
 
 
@@ -164,12 +168,16 @@ def test_ws_converse_handles_multiple_turns_in_one_session():
     )
     fake_connect = _FakeConnect(upstream)
     _StubClient.responses = [
+        _StubResponse(),                                              # stt debug event push, turn 1
         _StubResponse(json_data={"action": "reply", "message": "Баланс: 10000 тенге",
                                   "speech": None, "lang": "ru-RU"}),   # chat turn 1
         _StubResponse(content=b"mp3-1"),                              # tts turn 1
+        _StubResponse(),                                              # tts debug event push, turn 1
+        _StubResponse(),                                              # stt debug event push, turn 2
         _StubResponse(json_data={"action": "confirm", "message": "Перевести 1000?",
                                   "speech": None, "lang": "ru-RU"}),   # chat turn 2
         _StubResponse(content=b"mp3-2"),                              # tts turn 2
+        _StubResponse(),                                              # tts debug event push, turn 2
     ]
 
     with (
@@ -276,9 +284,11 @@ def test_ws_converse_suppresses_reply_when_not_understood():
     )
     fake_connect = _FakeConnect(upstream)
     _StubClient.responses = [
+        _StubResponse(),  # stt debug event push
         _StubResponse(json_data={"action": "reply", "message": "Не совсем понял...",
                                   "speech": None, "lang": "ru-RU", "understood": False}),
         _StubResponse(content=b"mp3bytes"),
+        _StubResponse(),  # tts debug event push
     ]
 
     with (

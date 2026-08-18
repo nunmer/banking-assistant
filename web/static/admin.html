@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forte Voice — Admin</title>
+  <link rel="stylesheet" href="/static/admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-title">forte<span class="accent">admin</span></div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="flags">Flags</button>
+    <button class="tab-btn" data-tab="scenarios">Scenarios</button>
+    <button class="tab-btn" data-tab="conversations">Conversations</button>
+    <button class="tab-btn" data-tab="logs">Logs</button>
+  </nav>
+
+  <main>
+    <section id="panel-flags" class="tab-panel active">
+      <h2>Feature flags</h2>
+      <p class="hint">Takes effect immediately for new requests — no redeploy.</p>
+      <div id="flags-form" class="field-list"></div>
+    </section>
+
+    <section id="panel-scenarios" class="tab-panel">
+      <h2>Scenario catalogue</h2>
+      <button id="new-scenario-btn" class="btn-primary">+ New scenario</button>
+      <div id="scenarios-list"></div>
+      <div id="scenario-form-panel" class="form-panel hidden"></div>
+    </section>
+
+    <section id="panel-conversations" class="tab-panel">
+      <h2>Conversations</h2>
+      <p class="hint">Only captured going forward — nothing before this feature existed.</p>
+      <input
+        id="sessions-search"
+        type="text"
+        class="search-input"
+        placeholder="Search by username, name, or session ID…"
+      />
+      <div id="sessions-list"></div>
+    </section>
+
+    <section id="panel-logs" class="tab-panel">
+      <h2>Logs</h2>
+      <div class="logs-controls">
+        <select id="log-container-select"></select>
+        <button id="log-refresh-btn">Refresh</button>
+        <label><input type="checkbox" id="log-autopoll" /> Auto-refresh (5s)</label>
+      </div>
+      <pre id="log-output" class="log-output"></pre>
+    </section>
+  </main>
+
+  <!-- Fixed-position modal, independent of scroll position/tab content, so it
+       always appears centered regardless of how long the sessions list is. -->
+  <div id="transcript-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <button id="transcript-modal-close" class="modal-close" aria-label="Close">✕</button>
+      <div id="transcript-panel"></div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

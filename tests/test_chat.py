@@ -26,6 +26,16 @@ _BALANCE_SCENARIO = MagicMock(
     mib_method="POST",
 )
 
+_STATEMENT_PDF_SCENARIO = MagicMock(
+    intent="statement_pdf",
+    display_name="Account Statement (PDF)",
+    required_params=["period"],
+    confirm_template="Готовлю выписку за {period}. Подтверждаете?",
+    confirm_templates={"ru-RU": "Готовлю выписку за {period}. Подтверждаете?"},
+    mib_endpoint="/statement/pdf",
+    mib_method="POST",
+)
+
 _TRANSFER_PHONE_SCENARIO = MagicMock(
     intent="transfer_phone",
     display_name="Transfer by Phone",
@@ -875,3 +885,160 @@ async def test_chat_spoken_yes_for_statement_pdf_marks_document(client):
 
     assert resp.status_code == 200
     assert resp.json()["operation"]["document"] == "statement_pdf"
+
+
+class TestDebugTrace:
+    """One representative case per instrumented pipeline step — not
+    re-testing every existing branch, just confirming each new
+    debug_events.log_event() call fires with the right step/detail shape."""
+
+    @pytest.mark.asyncio
+    async def test_fresh_classification_logs_classify_event(self, client):
+        with (
+            patch(
+                "orchestrator.services.llm.classify",
+                new=AsyncMock(return_value=IntentResult(
+                    intent="transfer", params={"amount": "500"}, confidence=0.95,
+                    lang="en-US", topic=None,
+                )),
+            ),
+            patch("orchestrator.services.scenario.get", new=AsyncMock(return_value=_TRANSFER_SCENARIO)),
+            patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+            patch("orchestrator.services.debug_events.log_event", new=AsyncMock()) as log_event,
+        ):
+            resp = await client.post("/chat", json={"session_id": "trace-1", "text": "send 500"})
+
+        assert resp.status_code == 200
+        steps = [c.args[2] for c in log_event.await_args_list]
+        assert "classify" in steps
+        classify_call = next(c for c in log_event.await_args_list if c.args[2] == "classify")
+        assert classify_call.args[3]["intent"] == "transfer"
+        assert classify_call.args[3]["confidence"] == 0.95
+
+    @pytest.mark.asyncio
+    async def test_enrich_logs_before_after_params(self, client):
+        with (
+            patch(
+                "orchestrator.services.llm.classify",
+                new=AsyncMock(return_value=IntentResult(
+                    intent="transfer", params={"amount": "500", "currency": "USD", "to_account": "KZ123"},
+                    confidence=0.95,
+                )),
+            ),
+            patch("orchestrator.services.scenario.get", new=AsyncMock(return_value=_TRANSFER_SCENARIO)),
+            patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+            patch("orchestrator.services.debug_events.log_event", new=AsyncMock()) as log_event,
+        ):
+            resp = await client.post(
+                "/chat", json={"session_id": "trace-2", "text": "send 500 usd to KZ123"}
+            )
+
+        assert resp.status_code == 200
+        enrich_call = next(c for c in log_event.await_args_list if c.args[2] == "enrich")
+        assert enrich_call.args[3]["error"] is None
+        assert enrich_call.args[3]["params_after"]["amount"] == "500"
+
+    @pytest.mark.asyncio
+    async def test_slotfill_extract_param_logs_event(self, client):
+        sf = {"intent": "transfer", "params": {"amount": "500"}, "missing": ["currency"], "lang": "en-US"}
+        with (
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+            patch("orchestrator.services.slotfill.get", new=AsyncMock(return_value=sf)),
+            patch("orchestrator.services.llm.extract_param", new=AsyncMock(return_value="USD")),
+            patch("orchestrator.services.scenario.get", new=AsyncMock(return_value=_TRANSFER_SCENARIO)),
+            patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+            patch("orchestrator.services.debug_events.log_event", new=AsyncMock()) as log_event,
+        ):
+            resp = await client.post("/chat", json={"session_id": "trace-3", "text": "USD"})
+
+        assert resp.status_code == 200
+        extract_call = next(c for c in log_event.await_args_list if c.args[2] == "extract_param")
+        assert extract_call.args[3]["asked"] == "currency"
+        assert extract_call.args[3]["value"] == "USD"
+
+    @pytest.mark.asyncio
+    async def test_mib_execute_logs_event_on_confirm_yes(self, client):
+        pending = {
+            "scenario_intent": "balance", "mib_endpoint": "/balance", "mib_method": "POST",
+            "params": {}, "lang": "en-US", "summary": "Show balance?",
+        }
+        with (
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=pending)),
+            patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
+            patch(
+                "orchestrator.services.mib.execute",
+                new=AsyncMock(return_value=MIBResult(status="success", tx_id="MOCK-1", message="Done.")),
+            ),
+            patch("orchestrator.services.debug_events.log_event", new=AsyncMock()) as log_event,
+        ):
+            resp = await client.post("/chat", json={"session_id": "trace-4", "text": "yes"})
+
+        assert resp.status_code == 200
+        mib_call = next(c for c in log_event.await_args_list if c.args[2] == "mib_execute")
+        assert mib_call.args[3]["status"] == "success"
+        assert mib_call.args[3]["tx_id"] == "MOCK-1"
+
+    @pytest.mark.asyncio
+    async def test_confirm_template_rendering_logs_event(self, client):
+        """Regression guard for the "two months" localization bug: a param
+        value speechtext.py doesn't know how to localize passes through
+        unchanged and ends up embedded in the target-language sentence. The
+        classify/enrich events alone don't show that — only the rendered
+        template + both param views do."""
+        with (
+            patch(
+                "orchestrator.services.llm.classify",
+                new=AsyncMock(return_value=IntentResult(
+                    intent="transfer", params={"amount": "500", "currency": "USD", "to_account": "KZ123"},
+                    confidence=0.95,
+                )),
+            ),
+            patch("orchestrator.services.scenario.get", new=AsyncMock(return_value=_TRANSFER_SCENARIO)),
+            patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "en-US"})),
+            patch("orchestrator.services.debug_events.log_event", new=AsyncMock()) as log_event,
+        ):
+            resp = await client.post("/chat", json={"session_id": "trace-5", "text": "send 500 usd to KZ123"})
+
+        assert resp.status_code == 200
+        confirm_call = next(c for c in log_event.await_args_list if c.args[2] == "confirm")
+        detail = confirm_call.args[3]
+        assert detail["template"] == _TRANSFER_SCENARIO.confirm_template
+        assert detail["display_params"]["amount"] == "500"
+        assert detail["message"] == resp.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_period_abbreviation_does_not_double_the_closing_period(self, client):
+        """Regression guard: "{period}." with period="3 мес." (the Russian
+
+        declension-dodging abbreviation) must not render as "3 мес.." —
+        template.format() doesn't know the value itself ends in a period."""
+        with (
+            patch(
+                "orchestrator.services.llm.classify",
+                new=AsyncMock(return_value=IntentResult(
+                    intent="statement_pdf", params={"period": "3 month"}, confidence=0.95, lang="ru-RU",
+                )),
+            ),
+            patch(
+                "orchestrator.services.scenario.get",
+                new=AsyncMock(return_value=_STATEMENT_PDF_SCENARIO),
+            ),
+            patch("orchestrator.services.confirm.create_pending", new=AsyncMock()),
+            patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=None)),
+            patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
+        ):
+            resp = await client.post(
+                "/chat", json={"session_id": "trace-6", "text": "выписку за 3 месяца", "lang": "ru-RU"}
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Готовлю выписку за 3 мес. Подтверждаете?"
+        assert ".." not in resp.json()["message"]

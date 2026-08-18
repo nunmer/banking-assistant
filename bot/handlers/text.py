@@ -1,5 +1,6 @@
 """Text message and confirmation-callback handlers."""
 import logging
+import uuid
 
 import httpx
 from aiogram import F, Router
@@ -41,11 +42,32 @@ async def _persist_lang(session_id: str, lang: str) -> None:
         logger.warning("failed to persist lang: %s", e)
 
 
+async def _reset_session(session_id: str) -> None:
+    """Best-effort clear of any stuck pending confirmation/slot-filling.
+
+    One Telegram account is always one continuous conversation by design
+    (see orchestrator/main.py's /session/reset) — this is what makes /start
+    actually feel like starting over, instead of silently resuming whatever
+    half-finished request was left hanging from a previous session.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.ORCHESTRATOR_URL}/session/reset",
+                json={"session_id": session_id},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        logger.warning("failed to reset session: %s", e)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message) -> None:
     lang = _user_lang(message)
+    session_id = str(message.from_user.id)
     # Seed the session with the Telegram locale so voice works on first use.
-    await _persist_lang(str(message.from_user.id), lang)
+    await _persist_lang(session_id, lang)
+    await _reset_session(session_id)
     # Mini App button — opens the voice client inside Telegram (same session).
     reply_markup = (
         web_app_keyboard(t(lang, "web_version"), settings.WEB_APP_URL)
@@ -110,7 +132,10 @@ async def handle_text(message: Message) -> None:
 
     try:
         data = await send_to_orchestrator(
-            session_id, message.text, user_name=message.from_user.first_name
+            session_id, message.text,
+            user_name=message.from_user.first_name,
+            username=message.from_user.username,
+            turn_id=str(uuid.uuid4()),
         )
     except httpx.HTTPError as e:
         logger.error("orchestrator call failed: %s", e)

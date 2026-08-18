@@ -100,6 +100,19 @@ body {
 
 .status.active { color: var(--magenta-soft); }
 
+/* A static color change is easy to miss while waiting for the STT→chat→TTS
+   round trip — pulse the "thinking" status so it visibly reads as "working"
+   rather than looking the same as any other status line. */
+.status.thinking {
+  animation: status-pulse 1.1s ease-in-out infinite;
+  font-weight: 600;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
 /* ── Vaporizing reply caption — voice answers surface as short phrases
    that materialise out of the sphere and dissolve into it as the next one
    arrives, instead of one long wall of text. ───────────────────────────── */
@@ -159,6 +172,35 @@ body {
   animation-delay: 0.1s;
 }
 
+/* Classic three-dot "processing" indicator, shown front-and-center over the
+   sphere the instant a recording is submitted — the same glowing spot the
+   reply caption itself occupies, so it reads as an obvious, familiar
+   "the bot is working on it" signal instead of a small status line users
+   were missing entirely. */
+.thinking-dots {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  animation: none; /* overrides .caption-block's entrance animation */
+}
+
+.thinking-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(238, 45, 139, 0.9);
+  animation: thinking-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes thinking-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-8px); opacity: 1; }
+}
+
 @keyframes caption-in {
   from {
     opacity: 0;
@@ -208,6 +250,10 @@ body {
     animation: none;
   }
   .caption-block.leaving { opacity: 0; }
+  .thinking-dots span {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* ── Statement PDF "generating" ghost — a document assembling itself over

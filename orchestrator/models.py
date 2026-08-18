@@ -13,6 +13,13 @@ class ChatRequest(BaseModel):
     # never available for an anonymous browser session). Used to personalise
     # the greeting reply — omitted entirely when unknown, not guessed.
     user_name: str | None = None
+    # The Telegram @handle ("tg nick") — separate from user_name (first
+    # name). Captured for admin-panel session search, not used in any reply.
+    username: str | None = None
+    # Correlates this turn's messages/debug_events rows across services
+    # (web/bot generate one per turn before calling STT). Falls back to a
+    # freshly generated one in routers/chat.py if the caller omits it.
+    turn_id: str | None = None
 
 
 class ChatResponse(BaseModel):

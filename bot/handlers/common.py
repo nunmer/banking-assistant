@@ -14,7 +14,12 @@ def speech_headers() -> dict[str, str]:
 
 
 async def send_to_orchestrator(
-    session_id: str, text: str, lang: str | None = None, user_name: str | None = None
+    session_id: str,
+    text: str,
+    lang: str | None = None,
+    user_name: str | None = None,
+    username: str | None = None,
+    turn_id: str | None = None,
 ) -> dict:
     """POST a user utterance to the orchestrator /chat endpoint.
 
@@ -24,17 +29,41 @@ async def send_to_orchestrator(
 
     `user_name` (the Telegram first name) lets the orchestrator personalise a
     greeting reply — Telegram gives us this on every message, so it costs
-    nothing to always pass it.
+    nothing to always pass it. `username` (the Telegram @handle — "tg nick")
+    is separate, used only for the admin panel's session search, never in a
+    reply. `turn_id` correlates this turn's debug trace (see
+    push_debug_event) with orchestrator's own classify/mib_execute events.
     """
     payload: dict = {"session_id": session_id, "text": text, "channel": "telegram"}
     if lang is not None:
         payload["lang"] = lang
     if user_name:
         payload["user_name"] = user_name
+    if username:
+        payload["username"] = username
+    if turn_id:
+        payload["turn_id"] = turn_id
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(f"{settings.ORCHESTRATOR_URL}/chat", json=payload)
         resp.raise_for_status()
         return resp.json()
+
+
+async def push_debug_event(session_id: str, turn_id: str, step: str, detail: dict) -> None:
+    """Record a pipeline step the bot owns (STT/TTS) for the admin panel's
+
+    per-turn debug trace. Best-effort: a failure here must never break the
+    user-facing flow — same as web/app.py's version (no shared package
+    between bot/web, hence the small duplication).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{settings.ORCHESTRATOR_URL}/debug/events",
+                json={"session_id": session_id, "turn_id": turn_id, "step": step, "detail": detail},
+            )
+    except Exception as e:  # noqa: BLE001 — debug tracing must never break the flow
+        logger.error("failed to push debug event (turn=%s, step=%s): %s", turn_id, step, e)
 
 
 async def get_user_lang(session_id: str, fallback: str | None = None) -> str:

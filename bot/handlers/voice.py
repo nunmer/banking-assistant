@@ -1,5 +1,6 @@
 """Voice-note handler: download → STT → orchestrate → optional TTS reply."""
 import logging
+import uuid
 
 import httpx
 from aiogram import Bot, F, Router
@@ -8,6 +9,7 @@ from aiogram.types import BufferedInputFile, Message
 from bot.config import settings
 from bot.handlers.common import (
     get_user_lang,
+    push_debug_event,
     send_to_orchestrator,
     speech_headers,
     synthesize,
@@ -36,7 +38,8 @@ async def _transcribe(audio: bytes) -> str:
 
 
 async def _reply(
-    message: Message, text: str, lang: str, speech: str | None = None, **kwargs
+    message: Message, text: str, lang: str, speech: str | None = None,
+    session_id: str | None = None, turn_id: str | None = None, **kwargs
 ) -> None:
     """Reply to a voice message.
 
@@ -44,9 +47,17 @@ async def _reply(
     followed by the text (the text message carries any inline keyboard). The
     voice reads `speech` when provided (e.g. account numbers spelled out),
     otherwise `text`. If TTS is disabled or synthesis fails, fall back to text.
+    `session_id`/`turn_id`, when given, record a `tts` debug event for the
+    admin panel's per-turn trace.
     """
     if settings.TTS_VOICE_REPLIES:
-        audio = await synthesize(speech or text, lang=lang)
+        speak_text = speech or text
+        audio = await synthesize(speak_text, lang=lang)
+        if session_id and turn_id:
+            await push_debug_event(
+                session_id, turn_id, "tts",
+                {"text": speak_text, "lang": lang, "success": audio is not None},
+            )
         if audio:
             await message.answer_voice(BufferedInputFile(audio, filename="reply.ogg"))
             await message.answer(text, **kwargs)
@@ -57,6 +68,7 @@ async def _reply(
 @router.message(F.voice)
 async def handle_voice(message: Message, bot: Bot) -> None:
     session_id = str(message.from_user.id)
+    turn_id = str(uuid.uuid4())
     # Use the persisted session language (set via /lang) so STT is told the
     # right language; fall back to the Telegram locale for brand-new users.
     lang = await get_user_lang(session_id, fallback=_user_lang(message))
@@ -73,6 +85,11 @@ async def handle_voice(message: Message, bot: Bot) -> None:
         await message.answer(t(lang, "error_audio"))
         return
 
+    await push_debug_event(
+        session_id, turn_id, "stt",
+        {"lang": settings.STT_LANGS, "transcript": transcript, "audio_bytes": len(audio)},
+    )
+
     if not transcript.strip():
         await message.answer(t(lang, "empty_audio"))
         return
@@ -81,7 +98,10 @@ async def handle_voice(message: Message, bot: Bot) -> None:
 
     try:
         data = await send_to_orchestrator(
-            session_id, transcript, user_name=message.from_user.first_name
+            session_id, transcript,
+            user_name=message.from_user.first_name,
+            username=message.from_user.username,
+            turn_id=turn_id,
         )
     except httpx.HTTPError as e:
         logger.error("orchestrator call failed: %s", e)
@@ -98,5 +118,7 @@ async def handle_voice(message: Message, bot: Bot) -> None:
         data["message"],
         lang=reply_lang,
         speech=data.get("speech"),
+        session_id=session_id,
+        turn_id=turn_id,
         reply_markup=reply_markup,
     )

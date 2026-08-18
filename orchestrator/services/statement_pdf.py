@@ -15,6 +15,7 @@ import base64
 import hashlib
 import logging
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,7 +31,21 @@ redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
 _TTL = 3600  # seconds a generated PDF stays downloadable
 
-_PERIOD_DAYS = {"week": 7, "month": 30, "quarter": 90, "year": 365}
+# "period" is either the literal "quarter" or "<count> <unit>" — an arbitrary
+# duration, not a fixed set of buckets (see llm.py's prompt and
+# speechtext.py's _localize_period, which render the same value for display).
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+_PERIOD_RE = re.compile(r"^(\d+)\s+(day|week|month|year)$")
+
+
+def _period_to_days(period: str) -> int:
+    p = (period or "").strip().lower()
+    if p == "quarter":
+        return 90
+    m = _PERIOD_RE.match(p)
+    if m:
+        return int(m.group(1)) * _UNIT_DAYS[m.group(2)]
+    return _UNIT_DAYS.get(p, 30)  # bare old-format bucket word, or unrecognized → 30
 
 # (description, sign) — mundane, plausible line items for a fabricated demo
 # statement; +1 credit, -1 debit.
@@ -71,7 +86,7 @@ def _key(tx_id: str) -> str:
 def _mock_rows(tx_id: str, period: str) -> list[dict]:
     """Deterministic pseudo-random rows seeded from tx_id, so re-downloading
     the same operation always returns the same statement."""
-    days = _PERIOD_DAYS.get(period, 30)
+    days = _period_to_days(period)
     seed = int(hashlib.sha256(tx_id.encode()).hexdigest(), 16)
     rng = random.Random(seed)
     now = datetime.now(timezone.utc)

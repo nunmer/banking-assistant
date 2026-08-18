@@ -66,6 +66,28 @@ class TestExtractPromptRules:
         assert "half a year" in llm._EXTRACT_PROMPT
 
 
+class TestPeriodPromptRule:
+    def test_period_has_no_free_text_escape_hatch(self):
+        # Regression guard: the prompt used to allow "or a date range as
+        # given" as a period value, which let the model fall back to an
+        # untranslated English phrase (e.g. "two months") for a Kazakh/Russian
+        # request — speechtext.py's localization for period only recognizes
+        # "quarter" or "<count> <unit>", so free text passed straight through
+        # unchanged into the target-language confirm sentence.
+        assert "date range as given" not in llm.SYSTEM_PROMPT
+
+    def test_period_uses_digit_count_plus_unit_not_a_fixed_bucket(self):
+        # Regression guard for the follow-up bug: an earlier fix rounded any
+        # period to one of 4 fixed buckets (week/month/quarter/year), which
+        # silently discarded the actual duration the user asked for (client
+        # asked for 2 months, got a 1-month statement). The real number must
+        # survive — only the unit word is drawn from a fixed vocabulary,
+        # since a unit needs a translated word; the count does not.
+        assert '"<digits> <unit>"' in llm.SYSTEM_PROMPT
+        assert "never collapse it to a round" in llm.SYSTEM_PROMPT
+        assert "never translate" in llm.SYSTEM_PROMPT
+
+
 class TestClassifyLang:
     @pytest.mark.asyncio
     async def test_parses_detected_lang(self):

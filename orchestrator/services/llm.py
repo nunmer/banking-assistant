@@ -114,7 +114,15 @@ Parameter rules:
 - card_kind: card type/name if named (gold, platinum, salary, …); optional.
 - limit_kind: "daily" or "monthly".
 - limit_amount: the new limit (digits only).
-- period: statement period — one of week, month, quarter, year (or a date range as given).
+- period: statement period. Either the single word "quarter" (a calendar
+    quarter — "квартал"/"тоқсан"), or "<digits> <unit>" where unit is exactly
+    one of "day", "week", "month", "year" (singular, this exact English word —
+    an internal code, never translate it into the user's language; digits
+    only for the count, never spelled out). Convert the user's own wording to
+    this form: "two months"/"екі айға" → "2 month", "half a year"/"жарты жыл"
+    → "6 month", "a week"/"бір апта" → "1 week", "10 days" → "10 day". Keep
+    the real number the user asked for — never collapse it to a round
+    "week"/"month"/"year" bucket that loses the actual duration.
 - cert_kind: certificate type — "account", "no_debt", or "balance".
 
 Examples:
@@ -179,7 +187,10 @@ User: "Set the monthly limit to 1000000 on card 8899"
 Response: {"intent": "card_limit", "params": {"card_last4": "8899", "limit_kind": "monthly", "limit_amount": "1000000"}, "confidence": 0.95}
 
 User: "Пришли выписку за месяц"
-Response: {"intent": "statement_pdf", "params": {"period": "month"}, "confidence": 0.95}
+Response: {"intent": "statement_pdf", "params": {"period": "1 month"}, "confidence": 0.95}
+
+User: "соңғы екі айға выписка шығарып берші"
+Response: {"intent": "statement_pdf", "params": {"period": "2 month"}, "confidence": 0.95, "lang": "kk-KZ"}
 
 User: "Нужна справка об отсутствии задолженности"
 Response: {"intent": "certificate", "params": {"cert_kind": "no_debt"}, "confidence": 0.95}

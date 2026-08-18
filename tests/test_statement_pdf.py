@@ -32,6 +32,33 @@ class TestMockRows:
             assert (now - row["date"]).days <= 7
 
 
+class TestPeriodToDays:
+    """Regression coverage: the real requested duration must drive the
+
+    actual date range, not get silently collapsed to a fixed bucket (the
+    "two months" bug — the client asked for 2 months and would have gotten a
+    statement covering the wrong window)."""
+
+    def test_arbitrary_counts_scale_correctly(self):
+        assert statement_pdf._period_to_days("1 month") == 30
+        assert statement_pdf._period_to_days("2 month") == 60
+        assert statement_pdf._period_to_days("4 month") == 120
+        assert statement_pdf._period_to_days("10 day") == 10
+        assert statement_pdf._period_to_days("3 year") == 1095
+
+    def test_quarter_is_ninety_days(self):
+        assert statement_pdf._period_to_days("quarter") == 90
+
+    def test_old_bare_bucket_words_still_supported(self):
+        assert statement_pdf._period_to_days("week") == 7
+        assert statement_pdf._period_to_days("month") == 30
+        assert statement_pdf._period_to_days("year") == 365
+
+    def test_unrecognized_value_falls_back_to_thirty_days(self):
+        assert statement_pdf._period_to_days("nonsense") == 30
+        assert statement_pdf._period_to_days("") == 30
+
+
 class TestBuildPdf:
     @pytest.mark.parametrize("lang", ["ru-RU", "kk-KZ", "en-US"])
     def test_produces_valid_pdf_bytes(self, lang):

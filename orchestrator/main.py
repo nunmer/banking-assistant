@@ -55,10 +55,9 @@ async def reset_session(req: SessionResetRequest) -> dict:
     """Clear any stuck in-progress state (a pending confirmation or a
 
     half-answered slot-filling collection) without touching the durable
-    conversation history/operations record. One Telegram account is always
-    one continuous conversation by design (bot chat and the Mini App share
-    it) — this is the "start fresh" action for when that's not what the
-    user wants right now, wired to Telegram's own /start command.
+    conversation history/operations record. One identity is always one
+    continuous conversation by design — this is the "start fresh" action
+    for when that's not what the user wants right now.
     """
     await confirm_svc.clear_pending(req.session_id)
     await slotfill_svc.clear(req.session_id)

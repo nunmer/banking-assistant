@@ -1,4 +1,5 @@
 """Tests for the web gateway's admin panel: auth gate, flags, logs, proxies."""
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,7 +9,8 @@ import web.app as gateway
 from web.admin import docker_logs
 from tests.test_web_gateway import _StubClient, _StubResponse
 
-_CREDS = ("admin", "admin")
+# Matches the fixture values conftest.py sets before importing the app.
+_CREDS = (os.environ["ADMIN_USER"], os.environ["ADMIN_PASSWORD"])
 
 
 @pytest.fixture
@@ -138,7 +140,7 @@ class TestOrchestratorProxy:
         assert resp.status_code == 200
         assert resp.json() == [{"session_id": "u1"}]
         assert _StubClient.last_call["url"].endswith("/admin/conversations/sessions")
-        assert _StubClient.last_call["auth"] == ("admin", "admin")
+        assert _StubClient.last_call["auth"] == _CREDS
 
     @pytest.mark.asyncio
     async def test_get_conversation_proxies(self, client):

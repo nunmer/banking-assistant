@@ -1,0 +1,7 @@
+Alembic migrations for the speech service.
+
+Generate a new migration:
+    alembic revision --autogenerate -m "describe change"
+
+Apply migrations:
+    alembic upgrade head

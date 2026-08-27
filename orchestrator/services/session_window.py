@@ -1,6 +1,6 @@
-"""Rolling conversation-window id per identity (Telegram user id / anon
+"""Rolling conversation-window id per identity (anonymous browser session
 
-browser session uuid) — groups the durable transcript (messages,
+uuid) — groups the durable transcript (messages,
 debug_events, session_identities) into separate "visits" instead of one
 never-ending conversation, without changing the permanent identity itself.
 

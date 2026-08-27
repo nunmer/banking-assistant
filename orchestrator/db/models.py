@@ -13,10 +13,8 @@ class Base(DeclarativeBase):
 class Operation(Base):
     """A completed (executed or failed) banking operation.
 
-    The durable operation history behind both channels: recorded once at
-    execution time, listed in the Mini App / web UI after any restart. Keyed by
-    session_id — which for Telegram-authenticated users is the Telegram user
-    id, so Telegram-chat and Mini App history are one and the same.
+    The durable operation history: recorded once at execution time, listed
+    in the web UI after any restart. Keyed by session_id.
     """
 
     __tablename__ = "operations"
@@ -82,11 +80,10 @@ class DebugEvent(Base):
 
 
 class SessionIdentity(Base):
-    """Telegram identity for a session — lets the admin panel search by
+    """Optional identity for a session — lets the admin panel search by
 
-    `@username` ("tg nick") or first name instead of a bare numeric session
-    id. One row per session, upserted on every /chat call that carries a
-    username/first_name (both channels: bot messages and the Mini App).
+    username or first name instead of a bare session id. One row per
+    session, upserted on any /chat call that carries a username/first_name.
     """
 
     __tablename__ = "session_identities"

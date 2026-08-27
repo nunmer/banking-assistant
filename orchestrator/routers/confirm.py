@@ -34,5 +34,5 @@ async def confirm_reply(req: ConfirmReplyRequest) -> ChatResponse:
         method=pending.get("mib_method", "POST"),
     )
 
-    operation = await _record_operation(req, pending, result, result.message, lang)
+    operation = await _record_operation(req, pending, result, lang)
     return ChatResponse(action="reply", message=result.message, operation=operation)

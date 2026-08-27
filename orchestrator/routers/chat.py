@@ -29,7 +29,6 @@ from orchestrator.services import (
     history,
     llm,
     mib,
-    notify,
     numwords,
     opsummary,
     scenario,
@@ -89,9 +88,9 @@ def _reply(lang: str, key: str, *, understood: bool = True, **kwargs: str) -> Ch
 
 
 async def _record_operation(
-    req, pending: dict, result, result_message: str, lang: str
+    req, pending: dict, result, lang: str
 ) -> dict:
-    """Persist an executed operation and cross-notify Telegram for web ops.
+    """Persist an executed operation.
 
     Returns the operation dict included in the ChatResponse so clients can
     render a persistent history card immediately.
@@ -107,10 +106,6 @@ async def _record_operation(
         tx_id=result.tx_id,
         channel=channel,
     )
-    if channel == "web":
-        # Mirror the operation into the user's Telegram chat (no-op for
-        # anonymous browser sessions).
-        await notify.telegram_operation(req.session_id, summary, result_message)
 
     operation = {
         "summary": summary,
@@ -266,14 +261,15 @@ async def chat(req: ChatRequest) -> ChatResponse:
     """Log both sides of the turn around `_chat`, whichever branch it takes.
 
     A single choke point for the admin panel's Conversations tab — every
-    surface (web, Telegram) goes through this one route, so wrapping it here
-    covers every reply shape (small talk, slot-filling, confirm, decline)
-    without threading a log call through every return point in `_chat`.
+    caller goes through this one route, so wrapping it here covers every
+    reply shape (small talk, slot-filling, confirm, decline) without
+    threading a log call through every return point in `_chat`.
 
     Also the single choke point for the debug trace (`turn_id` — falls back
     to a fresh one if the caller omitted it, so every turn always has one),
-    for capturing Telegram identity (`username`/`user_name`) for the admin
-    panel's session search, and for resolving the windowed conversation id
+    for capturing an optional identity (`username`/`user_name`, when a
+    caller supplies one) for the admin panel's session search, and for
+    resolving the windowed conversation id
     (`history_session_id` — see services/session_window.py) used to GROUP
     the durable transcript into separate visits instead of one never-ending
     conversation tied to the permanent identity. `req.session_id` itself is
@@ -322,7 +318,7 @@ async def _chat(req: ChatRequest, turn_id: str, history_session_id: str) -> Chat
             )
             key = "operation_error" if result.status == "error" else "operation_done"
             message = t(lang, key)
-            operation = await _record_operation(req, pending, result, message, lang)
+            operation = await _record_operation(req, pending, result, lang)
             return ChatResponse(
                 action="reply", message=message,
                 speech=_speech_or_none(message, i18n_speech(lang, key)),
@@ -411,8 +407,8 @@ async def _chat(req: ChatRequest, turn_id: str, history_session_id: str) -> Chat
     )
 
     if intent_result.intent in _SMALL_TALK:
-        # Personalise the greeting when the channel knows the user's name
-        # (Telegram bot/Mini App) — never guessed, just omitted otherwise.
+        # Personalise the greeting when the caller supplied a name —
+        # never guessed, just omitted otherwise.
         if intent_result.intent == "greeting" and req.user_name:
             return _reply(lang, "greeting_named", name=req.user_name)
         return _reply(lang, intent_result.intent)

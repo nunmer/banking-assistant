@@ -40,50 +40,21 @@
   const input = document.getElementById("text-input");
   const docGenEl = document.getElementById("doc-gen");
 
-  // Stable per-browser session, so multi-turn slot-filling works. Inside
-  // Telegram this is replaced (below) by the verified Telegram user id, so the
-  // Mini App shares one conversation session with the chat bot.
+  // Stable per-browser session, so multi-turn slot-filling works.
   let sessionId =
     localStorage.getItem("forte_session") ||
     (localStorage.setItem("forte_session", crypto.randomUUID()),
     localStorage.getItem("forte_session"));
 
-  // Telegram first name, for a personalised greeting — only ever set inside
-  // the Mini App (verified via /api/tg-auth); null for an anonymous browser
-  // session, and never guessed client-side.
+  // First name, for a personalised greeting; null for an anonymous session,
+  // never guessed client-side.
   let userName = null;
 
-  // Telegram @handle ("tg nick") — separate from userName (first name).
-  // Never shown in any reply; only used server-side for the admin panel's
-  // session search. Same availability as userName (Mini App only).
+  // Separate from userName (first name); only used server-side for the
+  // admin panel's session search.
   let username = null;
 
-  // ── Telegram Mini App integration + startup ────────────────────────────
-  const tg = window.Telegram && window.Telegram.WebApp;
-
   async function init() {
-    if (tg && tg.initData) {
-      tg.ready();
-      tg.expand();
-      if (tg.setHeaderColor) tg.setHeaderColor("#0d0410");
-      // Chat scrolling shouldn't drag-close the Mini App (Bot API 7.7+).
-      if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-      try {
-        const r = await fetch("/api/tg-auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ init_data: tg.initData }),
-        });
-        if (r.ok) {
-          const data = await r.json();
-          if (data.session_id) sessionId = data.session_id;
-          if (data.user_name) userName = data.user_name;
-          if (data.username) username = data.username;
-        }
-      } catch {} // unverified → keep the anonymous browser session
-    }
-    // History must load AFTER auth so it belongs to the right session — for
-    // Telegram users this includes operations done in the chat bot.
     await loadHistory();
   }
 
@@ -108,9 +79,8 @@
           day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
         })
       : "";
-    const via = op.channel === "telegram" ? " · Telegram" : "";
     el.innerHTML =
-      `<div class="op-summary"></div><div class="op-meta">${icon} ${when}${via}</div>`;
+      `<div class="op-summary"></div><div class="op-meta">${icon} ${when}</div>`;
     el.querySelector(".op-summary").textContent = op.summary;
     if (op.document === "statement_pdf" && op.status === "success" && op.tx_id) {
       // "📄 PDF" rather than a translated verb — a universally understood
@@ -121,17 +91,6 @@
       link.href = pdfUrl;
       link.setAttribute("download", "statement.pdf");
       link.textContent = "📄 PDF ⬇";
-      if (tg && tg.initData) {
-        // Inside the Telegram Mini App's WebView, navigating straight to a
-        // PDF response takes over the whole view with no back gesture —
-        // the only way out is force-closing the Mini App entirely. Hand the
-        // URL to the phone's real browser instead, which handles PDFs
-        // normally (its own back/close), leaving the Mini App untouched.
-        link.addEventListener("click", (e) => {
-          e.preventDefault();
-          tg.openLink(pdfUrl);
-        });
-      }
       el.appendChild(link);
     }
     chatEl.appendChild(el);
@@ -294,8 +253,8 @@
   function confirmButtons(voice, confirmBubble) {
     // The buttons inherit the modality of the turn that produced them, so a
     // voice conversation stays voice after a tap on Да/Нет.
-    // Mirrors Telegram: answering removes the confirmation prompt entirely —
-    // the result replaces it rather than piling up underneath.
+    // Answering removes the confirmation prompt entirely — the result
+    // replaces it rather than piling up underneath.
     clearConfirmUI(); // never stack two pending confirmations
     const row = document.createElement("div");
     row.className = "confirm-row";
@@ -835,8 +794,8 @@
 
   async function handleRecording(blob, myTurn) {
     try {
-      // One round trip: STT → chat → TTS run server-side (like the Telegram
-      // bot), instead of the browser paying internet latency between stages.
+      // One round trip: STT → chat → TTS run server-side, instead of the
+      // browser paying internet latency between stages.
       const fd = new FormData();
       fd.append("session_id", sessionId);
       if (userName) fd.append("user_name", userName);
@@ -915,7 +874,7 @@
       clearConfirmUI();
       if (data.operation) {
         // A completed operation stays in the log as a persistent card — in
-        // BOTH modalities. This is the durable record, synced with Telegram.
+        // BOTH modalities. This is the durable record.
         if (data.operation.document) {
           // Not awaited: the generating/flying flourish runs concurrently
           // with the spoken reply below, rather than delaying it.

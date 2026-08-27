@@ -1,8 +1,19 @@
 """Shared pytest fixtures for orchestrator and web-gateway unit tests."""
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+# orchestrator.config.Settings and web.admin.auth require these at import
+# time (no production fallback — see their own comments). setdefault() so a
+# real value from the environment (e.g. CI wiring a throwaway test DB) is
+# never clobbered; these are fixture placeholders, never real credentials,
+# and nothing in this test suite hits a real database or admin auth check —
+# see the autouse mocks below.
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
+os.environ.setdefault("ADMIN_USER", "test-fixture-admin")
+os.environ.setdefault("ADMIN_PASSWORD", "test-fixture-admin")
 
 from orchestrator.main import app
 from web.admin import runtime_config as web_runtime_config
@@ -12,9 +23,9 @@ from web.admin import runtime_config as web_runtime_config
 def _slotfill_defaults():
     """Neutralise external stores/services for every test.
 
-    Slot-fill (Redis), operation history (Postgres), conversation transcript
-    logging (Postgres), and Telegram notification become no-ops. Tests that
-    assert on them apply their own patches.
+    Slot-fill (Redis), operation history (Postgres), and conversation
+    transcript logging (Postgres) become no-ops. Tests that assert on them
+    apply their own patches.
     """
     with (
         patch("orchestrator.services.slotfill.get", new=AsyncMock(return_value=None)),
@@ -22,7 +33,6 @@ def _slotfill_defaults():
         patch("orchestrator.services.slotfill.clear", new=AsyncMock()),
         patch("orchestrator.services.history.record", new=AsyncMock()),
         patch("orchestrator.services.history.list_recent", new=AsyncMock(return_value=[])),
-        patch("orchestrator.services.notify.telegram_operation", new=AsyncMock()),
         patch("orchestrator.services.conversation.log", new=AsyncMock()),
         patch("orchestrator.services.debug_events.log_event", new=AsyncMock()),
         patch("orchestrator.services.session_identity.upsert", new=AsyncMock()),

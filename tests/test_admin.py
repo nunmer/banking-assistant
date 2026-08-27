@@ -1,10 +1,12 @@
 """Tests for the admin API: auth gate, scenario CRUD, conversation reads."""
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-_CREDS = ("admin", "admin")
+# Matches the fixture values conftest.py sets before importing the app.
+_CREDS = (os.environ["ADMIN_USER"], os.environ["ADMIN_PASSWORD"])
 
 _SCENARIO = MagicMock(
     intent="transfer",

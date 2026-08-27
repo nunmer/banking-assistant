@@ -10,12 +10,13 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
 
-    # Persistence
-    DATABASE_URL: str = "postgresql+asyncpg://forte:forte@postgres:5432/forte"
+    # Persistence — no default: must be set explicitly (Vault/.env), never a
+    # guessable credential baked into source.
+    DATABASE_URL: str
     REDIS_URL: str = "redis://redis:6379/0"
 
     # MIB
-    MIB_API_BASE: str = "http://mock-mib:8001"
+    MIB_API_BASE: str = "http://mib-service:8001"
     MIB_API_TOKEN: str = ""
 
     # Confirmation TTL (seconds) — user has this long to approve.
@@ -37,12 +38,11 @@ class Settings(BaseSettings):
     # Minimum LLM confidence to act on an intent.
     MIN_CONFIDENCE: float = 0.4
 
-    # Admin panel (routers/admin.py) — Basic Auth. Intentionally weak default
-    # per explicit pilot-stage instruction; the primary protection boundary is
-    # meant to be the web gateway's own Basic Auth in front of this (defense
-    # in depth, since this port's network exposure wasn't verified).
-    ADMIN_USER: str = "admin"
-    ADMIN_PASSWORD: str = "admin"
+    # Admin panel (routers/admin.py) — Basic Auth. No default: a guessable
+    # fallback credential must never ship in source. The web gateway's own
+    # Basic Auth sits in front of this too (defense in depth).
+    ADMIN_USER: str
+    ADMIN_PASSWORD: str
 
 
 settings = Settings()

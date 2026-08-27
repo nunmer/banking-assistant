@@ -94,7 +94,7 @@ async def test_chat_proxies_to_orchestrator(client):
 
 @pytest.mark.asyncio
 async def test_chat_forwards_user_name_when_given(client):
-    """Mini App sessions pass the Telegram first name for a personalised greeting."""
+    """When a client supplies a name, it's forwarded for a personalised greeting."""
     _StubClient.response = _StubResponse(
         json_data={"action": "reply", "message": "Привет, Санжар!",
                     "speech": None, "lang": "ru-RU"}
@@ -110,8 +110,8 @@ async def test_chat_forwards_user_name_when_given(client):
 
 @pytest.mark.asyncio
 async def test_chat_forwards_username_when_given(client):
-    """The Telegram @handle ("tg nick") — separate from user_name (first
-    name) — is forwarded too, for admin-panel session search."""
+    """The username — separate from user_name (first name) — is forwarded
+    too, for admin-panel session search."""
     _StubClient.response = _StubResponse(
         json_data={"action": "reply", "message": "Здравствуйте!", "speech": None, "lang": "ru-RU"}
     )
@@ -268,7 +268,6 @@ async def test_index_serves_ui(client):
     resp = await client.get("/")
     assert resp.status_code == 200
     assert "sphere" in resp.text  # the digital sphere canvas is present
-    assert "telegram-web-app.js" in resp.text  # Mini App bridge loaded
 
 
 @pytest.mark.asyncio
@@ -284,19 +283,6 @@ async def test_index_cache_busts_static_assets(client):
     for asset in ("app.css", "app.js", "sphere.js", "avatar.png"):
         match = _re.search(rf"/static/{_re.escape(asset)}\?v=([0-9a-f]{{10}})", resp.text)
         assert match, f"{asset} missing a cache-busting version query"
-
-
-@pytest.mark.asyncio
-async def test_tg_auth_returns_verified_session(client):
-    with (
-        patch.object(gateway.telegram_auth, "verify_init_data", return_value={"user": "..."}),
-        patch.object(gateway.telegram_auth, "user_id_from", return_value="42"),
-        patch.object(gateway.telegram_auth, "user_name_from", return_value="Sanzhar"),
-        patch.object(gateway.telegram_auth, "username_from", return_value="sanzhar_k"),
-    ):
-        resp = await client.post("/api/tg-auth", json={"init_data": "signed-blob"})
-    assert resp.status_code == 200
-    assert resp.json() == {"session_id": "42", "user_name": "Sanzhar", "username": "sanzhar_k"}
 
 
 @pytest.mark.asyncio
@@ -396,10 +382,3 @@ async def test_converse_empty_transcript_short_circuits(client):
     assert resp.status_code == 200
     assert resp.json()["transcript"] == ""
     assert len(_StubClient.calls) == 2  # stt + its debug event push, stopped before chat/tts
-
-
-@pytest.mark.asyncio
-async def test_tg_auth_rejects_invalid_signature(client):
-    with patch.object(gateway.telegram_auth, "verify_init_data", return_value=None):
-        resp = await client.post("/api/tg-auth", json={"init_data": "forged"})
-    assert resp.status_code == 401

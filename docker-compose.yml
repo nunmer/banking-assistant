@@ -1,17 +1,5 @@
 services:
 
-  bot:
-    build:
-      context: .
-      dockerfile: bot/Dockerfile
-    env_file: .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      orchestrator:
-        condition: service_healthy
-    restart: unless-stopped
-
   orchestrator:
     build:
       context: .
@@ -19,11 +7,9 @@ services:
     ports: ["8080:8000"]
     env_file: .env
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
-      mock-mib:
+      mib-service:
         condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -39,13 +25,10 @@ services:
       dockerfile: web/Dockerfile
     ports: ["443:8443"]
     env_file: .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       # Admin panel log viewer (web/admin/docker_logs.py) — read access to
-      # every container on this daemon, including other compose projects
-      # (e.g. speechkit). See the admin-panel plan for the security tradeoff
-      # this represents; deliberate, not an oversight.
+      # every container on this daemon. See the admin-panel plan for the
+      # security tradeoff this represents; deliberate, not an oversight.
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       orchestrator:
@@ -60,40 +43,74 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  mock-mib:
+  mib-service:
     build:
       context: .
-      dockerfile: mock-mib/Dockerfile
+      dockerfile: mib-service/Dockerfile
     ports: ["8001:8001"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8001/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
     restart: unless-stopped
 
-  postgres:
-    image: postgres:16
+  speech-service:
+    build:
+      context: ./speech-service
+      dockerfile: Dockerfile
+    image: speech-service:latest
+    command: ["api"]
+    ports: ["8000:8000"]
+    env_file: ./speech-service/.env
     environment:
-      POSTGRES_DB: forte
-      POSTGRES_USER: forte
-      POSTGRES_PASSWORD: forte
-    # Schema + seed data are owned by Alembic (orchestrator runs
-    # `alembic upgrade head` on startup), so no initdb seed mount here.
+      LOG_JSON: "true"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forte"]
-      interval: 5s
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 30s
       timeout: 5s
-      retries: 5
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
-  redis:
-    image: redis:7
+  worker:
+    build:
+      context: ./speech-service
+      dockerfile: Dockerfile
+    image: speech-service:latest
+    command: ["worker"]
+    env_file: ./speech-service/.env
+    environment:
+      LOG_JSON: "true"
     volumes:
-      - redisdata:/data
+      - uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+    # The image HEALTHCHECK curls the API port, which doesn't exist in the
+    # worker role — probe Celery itself instead.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app.celery_app inspect ping -d celery@$$(hostname) --timeout 10 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Single shared Redis for both the orchestrator/web session store (DB 0)
+  # and speech-service's Celery broker/results/cache (DB 3/4/5 — see
+  # speech-service/.env.example). Stateless on purpose: no volume, no AOF —
+  # the target environment has no PVC, and nothing stored here is durable
+  # source-of-truth data (sessions, job queue, rate-limit/dedup cache all
+  # tolerate a restart).
+  redis:
+    image: redis:7-alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -102,5 +119,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  pgdata:
-  redisdata:
+  uploads:

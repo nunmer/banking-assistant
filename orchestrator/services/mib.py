@@ -1,4 +1,5 @@
-"""MIB API client. Talks to the mock today, a real endpoint in prod.
+"""MIB API client. Talks to mib-service (Go, still mocked) today, a real
+endpoint in prod.
 
 Swapping in the real MIB is a config change (MIB_API_BASE); this module does
 not change. Domain errors are mapped to user-friendly messages.

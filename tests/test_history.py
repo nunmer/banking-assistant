@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from orchestrator.models import MIBResult
-from orchestrator.services import notify
 
 _PENDING = {
     "scenario_intent": "transfer_phone",
@@ -18,14 +17,6 @@ _PENDING = {
 _OK = MIBResult(status="success", tx_id="MOCK-1234", message="done")
 
 
-class TestIsTelegramSession:
-    def test_numeric_id_is_telegram(self):
-        assert notify.is_telegram_session("987654321")
-
-    def test_uuid_is_not(self):
-        assert not notify.is_telegram_session("3f6a2c9e-7b1d-4a5e-9c2f-1e8d7b6a5c4d")
-
-
 @pytest.mark.asyncio
 async def test_confirm_yes_records_operation_and_returns_it(client):
     """Approving via chat records history and returns the operation card data."""
@@ -35,7 +26,6 @@ async def test_confirm_yes_records_operation_and_returns_it(client):
         patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_OK)),
         patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
         patch("orchestrator.services.history.record", new=AsyncMock()) as record,
-        patch("orchestrator.services.notify.telegram_operation", new=AsyncMock()) as tg_notify,
     ):
         resp = await client.post(
             "/chat", json={"session_id": "111222333", "text": "да", "channel": "web"}
@@ -54,27 +44,6 @@ async def test_confirm_yes_records_operation_and_returns_it(client):
     assert kwargs["session_id"] == "111222333"
     assert kwargs["intent"] == "transfer_phone"
     assert kwargs["channel"] == "web"
-    # Web-executed operation for a Telegram-linked session → mirrored to chat.
-    tg_notify.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_telegram_channel_does_not_self_notify(client):
-    """Operations done in Telegram are already visible there — no echo message."""
-    with (
-        patch("orchestrator.services.confirm.get_pending", new=AsyncMock(return_value=_PENDING)),
-        patch("orchestrator.services.confirm.clear_pending", new=AsyncMock()),
-        patch("orchestrator.services.mib.execute", new=AsyncMock(return_value=_OK)),
-        patch("orchestrator.services.session.touch", new=AsyncMock(return_value={"lang": "ru-RU"})),
-        patch("orchestrator.services.history.record", new=AsyncMock()),
-        patch("orchestrator.services.notify.telegram_operation", new=AsyncMock()) as tg_notify,
-    ):
-        resp = await client.post(
-            "/chat", json={"session_id": "111222333", "text": "да", "channel": "telegram"}
-        )
-
-    assert resp.status_code == 200
-    tg_notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio

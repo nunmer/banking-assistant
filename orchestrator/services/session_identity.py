@@ -1,9 +1,10 @@
-"""Telegram identity per session — lets the admin panel search sessions by
+"""Optional identity per session — lets the admin panel search sessions by
 
-`@username` ("tg nick") or first name instead of a bare numeric session id.
-Upserted from routers/chat.py whenever a /chat call carries either field
-(bot messages and Mini App sessions both do); best-effort, same
-try/except-log-and-continue pattern as services/history.py.
+username or first name instead of a bare session id, when a caller
+supplies either field on /chat (routers/chat.py). No current caller does
+(the web client has no name-collection UI), so this is a no-op in practice
+today; best-effort, same try/except-log-and-continue pattern as
+services/history.py.
 """
 import logging
 

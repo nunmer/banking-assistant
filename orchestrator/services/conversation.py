@@ -43,7 +43,7 @@ async def log(
 async def list_sessions(limit: int = 50, offset: int = 0, q: str | None = None) -> list[dict]:
     """Most-recently-active sessions, newest first, with a message count.
 
-    `q`, when given, filters by session_id / Telegram @username / first_name
+    `q`, when given, filters by session_id / username / first_name
     (case-insensitive substring match) — the admin panel's session search.
     """
     try:

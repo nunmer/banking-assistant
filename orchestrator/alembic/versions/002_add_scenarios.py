@@ -5,7 +5,7 @@ card_unblock, card_limit, statement_pdf, certificate, navigation, manager.
 
 Idempotent (ON CONFLICT (intent) DO NOTHING) so it is safe on a DB that already
 has some rows. mib_method defaults to POST; every endpoint currently resolves to
-the mock-mib catch-all. navigation/manager are informational — they go through
+the mib-service catch-all. navigation/manager are informational — they go through
 the confirm flow for now; roadmap task 11 converts them to direct replies.
 
 Note: card_limit's confirm template shows limit_kind ("daily"/"monthly") raw;

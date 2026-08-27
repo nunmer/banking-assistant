@@ -5,19 +5,18 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     session_id: str
     text: str
-    lang: str | None = None  # BCP-47 tag from the bot (kk-KZ | ru-RU | en-US)
-    # Which surface sent this ("telegram" | "web"); used to attribute executed
-    # operations in history and to cross-notify the other channel.
+    lang: str | None = None  # BCP-47 tag (kk-KZ | ru-RU | en-US)
+    # Which surface sent this; used to attribute executed operations in history.
     channel: str | None = None
-    # The user's first name, when the channel knows it (Telegram bot/Mini App;
-    # never available for an anonymous browser session). Used to personalise
-    # the greeting reply — omitted entirely when unknown, not guessed.
+    # The user's first name, when the caller knows it; never available for an
+    # anonymous browser session. Used to personalise the greeting reply —
+    # omitted entirely when unknown, not guessed.
     user_name: str | None = None
-    # The Telegram @handle ("tg nick") — separate from user_name (first
-    # name). Captured for admin-panel session search, not used in any reply.
+    # Separate from user_name (first name). Captured for admin-panel session
+    # search, not used in any reply.
     username: str | None = None
     # Correlates this turn's messages/debug_events rows across services
-    # (web/bot generate one per turn before calling STT). Falls back to a
+    # (the caller generates one per turn before calling STT). Falls back to a
     # freshly generated one in routers/chat.py if the caller omits it.
     turn_id: str | None = None
 
@@ -63,7 +62,7 @@ class IntentResult(BaseModel):
 class ConfirmReplyRequest(BaseModel):
     session_id: str
     approved: bool
-    channel: str | None = None  # "telegram" | "web"
+    channel: str | None = None  # e.g. "web"
 
 
 class MIBResult(BaseModel):

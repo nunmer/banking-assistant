@@ -1,0 +1,79 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  CONFIG_REPO_URL: "https://gitlab.fortebank.com/ds/forte-ai/forte-ai-config.git"
+  CONFIG_REPO_BRANCH: "develop"
+
+.build-image:
+  stage: build
+  image:
+    name: registry.gitlab.fortebank.com/devops/images/kaniko:v1.15.0
+    entrypoint: [""]
+  before_script:
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+  script:
+    - /kaniko/executor --context "$BUILD_CONTEXT" --dockerfile "$DOCKERFILE" --destination "$IMAGE_NAME:$IMAGE_TAG" --cache=true
+
+build-orchestrator:
+  extends: .build-image
+  variables:
+    BUILD_CONTEXT: "$CI_PROJECT_DIR"
+    DOCKERFILE: "$CI_PROJECT_DIR/orchestrator/Dockerfile"
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/orchestrator"
+
+build-web:
+  extends: .build-image
+  variables:
+    BUILD_CONTEXT: "$CI_PROJECT_DIR"
+    DOCKERFILE: "$CI_PROJECT_DIR/web/Dockerfile"
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/web"
+
+build-mib-service:
+  extends: .build-image
+  variables:
+    BUILD_CONTEXT: "$CI_PROJECT_DIR"
+    DOCKERFILE: "$CI_PROJECT_DIR/mib-service/Dockerfile"
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/mib-service"
+
+build-speech-service:
+  extends: .build-image
+  variables:
+    BUILD_CONTEXT: "$CI_PROJECT_DIR/speech-service"
+    DOCKERFILE: "$CI_PROJECT_DIR/speech-service/Dockerfile"
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/speech-service"
+
+deploy-qa:
+  stage: deploy
+  image: registry.gitlab.fortebank.com/devops/images/smuggler:latest
+  needs:
+    - build-orchestrator
+    - build-web
+    - build-mib-service
+    - build-speech-service
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+  script:
+    - export CONFIG_REPO_NAME=$(echo "$CONFIG_REPO_URL" | awk -F'/' '{print $NF}' | cut -d. -f1)
+    - git config --global user.email 'devops-cicd@fortebank.com'
+    - git config --global user.name 'Bank CICD'
+    - git config --global credential.helper store
+    - echo "https://${CONFIG_REPO_USER}:${CONFIG_REPO_PASS}@gitlab.fortebank.com" >> ~/.git-credentials
+    - cd /root
+    - git clone "$CONFIG_REPO_URL" --branch "$CONFIG_REPO_BRANCH" --depth 1
+    - cd "$CONFIG_REPO_NAME/apps/mib-voice-assistant/qa"
+    - kustomize edit set image "orchestrator=$CI_REGISTRY_IMAGE/orchestrator:$IMAGE_TAG"
+    - kustomize edit set image "web=$CI_REGISTRY_IMAGE/web:$IMAGE_TAG"
+    - kustomize edit set image "mib-service=$CI_REGISTRY_IMAGE/mib-service:$IMAGE_TAG"
+    - kustomize edit set image "speech-service=$CI_REGISTRY_IMAGE/speech-service:$IMAGE_TAG"
+    - cd /root/$CONFIG_REPO_NAME
+    - git add apps/mib-voice-assistant/qa/kustomization.yaml
+    - git commit -m "[Auto-release] Update MIB Voice Assistant images to ${IMAGE_TAG}" || true
+    - |
+      for i in 1 2 4 8 16; do
+        if git push; then break; fi
+        git pull --rebase
+        sleep $i
+      done

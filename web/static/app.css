@@ -430,7 +430,7 @@ body {
   border-style: dashed;
 }
 
-/* Persistent record of an executed operation (synced with Telegram). */
+/* Persistent record of an executed operation. */
 .bubble.op {
   align-self: stretch;
   max-width: 100%;

@@ -1,0 +1,14 @@
+.git
+.env
+__pycache__
+*.pyc
+*.pyo
+out/
+data/
+*.wav
+*.mp3
+*.ogg
+response_*.json
+.pytest_cache
+.venv
+venv

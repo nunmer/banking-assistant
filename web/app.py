@@ -4,8 +4,6 @@ Serves the static voice UI and proxies browser calls to the orchestrator and
 the speech service. The proxy keeps the speech API key server-side — the
 browser never sees it — and enforces basic hygiene (payload size cap, per-IP
 rate limit) since this endpoint is public.
-
-Same functionality as the Telegram bot: STT → orchestrator /chat → TTS.
 """
 import asyncio
 import base64
@@ -25,7 +23,6 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from web import telegram_auth
 from web.admin import runtime_config
 from web.admin.routes import router as admin_router
 
@@ -53,8 +50,16 @@ STREAMING_VOICE_ENABLED = os.getenv("STREAMING_VOICE_ENABLED", "false").strip().
 TTS_VOICE_RU = os.getenv("TTS_VOICE_RU", "marina")
 TTS_VOICE_KK = os.getenv("TTS_VOICE_KK", "amira")
 TTS_VOICE_DEFAULT = os.getenv("TTS_VOICE_DEFAULT", "marina")
-# Bot token — used only to verify Telegram Mini App initData signatures.
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+
+# ── MIB WebView auth (see /mib/auth below) ───────────────────────────────
+# client_id/client_secret/redirect_uri are issued by the MIB/Auth team for
+# this specific webview client — not ours to invent. MIB_AUTH_URL is the
+# Auth service's oauth/ base (trailing slash), e.g.
+# https://qa-apigw.fortebank.com/authn.AuthnService/v1/
+MIB_AUTH_URL = os.getenv("MIB_AUTH_URL", "")
+MIB_AUTH_CLIENT_ID = os.getenv("MIB_AUTH_CLIENT_ID", "")
+MIB_AUTH_CLIENT_SECRET = os.getenv("MIB_AUTH_CLIENT_SECRET", "")
+MIB_AUTH_REDIRECT_URI = os.getenv("MIB_AUTH_REDIRECT_URI", "")
 
 MAX_AUDIO_BYTES = 4 * 1024 * 1024  # ~4 MB ≈ well over a minute of voice
 RATE_LIMIT_PER_MIN = int(os.getenv("WEB_RATE_LIMIT_PER_MIN", "60"))
@@ -119,6 +124,7 @@ async def _no_cache_static(request: Request, call_next):
     if (
         request.url.path == "/"
         or request.url.path == "/admin"
+        or request.url.path == "/mib/auth"
         or request.url.path.startswith("/static/")
     ):
         response.headers["Cache-Control"] = "no-cache"
@@ -207,32 +213,6 @@ class ChatIn(BaseModel):
 class TTSIn(BaseModel):
     text: str
     lang: str | None = None
-
-
-class TgAuthIn(BaseModel):
-    init_data: str
-
-
-@app.post("/api/tg-auth")
-async def tg_auth(request: Request, body: TgAuthIn) -> dict:
-    """Verify Telegram Mini App initData and return the authenticated session.
-
-    The returned session_id is the Telegram user id — the same id the chat bot
-    uses — so a conversation started in Telegram continues in the Mini App.
-    """
-    cfg = await runtime_config.get_config()
-    await _rate_limit(request, cfg["rate_limit_per_min"])
-    fields = telegram_auth.verify_init_data(body.init_data, TELEGRAM_TOKEN)
-    if fields is None:
-        raise HTTPException(status_code=401, detail="Invalid Telegram init data")
-    uid = telegram_auth.user_id_from(fields)
-    if uid is None:
-        raise HTTPException(status_code=401, detail="No user in init data")
-    return {
-        "session_id": uid,
-        "user_name": telegram_auth.user_name_from(fields),
-        "username": telegram_auth.username_from(fields),
-    }
 
 
 @app.get("/health")
@@ -376,11 +356,11 @@ async def converse(
     """One-round-trip voice turn: STT → chat → TTS, all server-side.
 
     The three-request flow (stt, chat, tts) made the browser pay internet
-    latency between every stage — ~3s slower than Telegram, whose bot runs the
-    same chain over localhost. This endpoint mirrors the bot: audio (or a text
-    from a voice-mode button) goes up once; the reply text and its MP3 come
-    back together. The MP3 is base64 in the JSON — replies are a few seconds
-    of speech, so the payload stays small.
+    latency between every stage. This endpoint runs the whole chain
+    server-side instead: audio (or a text from a voice-mode button) goes up
+    once; the reply text and its MP3 come back together. The MP3 is base64
+    in the JSON — replies are a few seconds of speech, so the payload stays
+    small.
 
     Superseded for live mic input by `/ws/converse` (streaming partial
     captions); this endpoint remains for text-mode turns and as a fallback
@@ -441,9 +421,8 @@ async def ws_converse(websocket: WebSocket) -> None:
 
     Protocol with the browser:
       1. Connect, then send {"session_id": ..., "lang": "ru-RU,kk-KZ",
-         "user_name": ...}. `user_name` is only present inside Telegram
-         (Mini App) and personalises a greeting reply; omitted for an
-         anonymous browser session.
+         "user_name": ...}. `user_name` personalises a greeting reply when
+         a client supplies one; omitted for an anonymous browser session.
       2. Send binary PCM16LE mono @ 16kHz frames continuously — including
          while the reply audio is playing. The mic is deliberately NOT muted
          during playback, so that a spoken "stop"/"wait" can interrupt (see
@@ -608,7 +587,7 @@ async def tts(request: Request, body: TTSIn) -> Response:
 
 @app.get("/api/history")
 async def api_history(request: Request, session_id: str, limit: int = 20) -> dict:
-    """Recent executed operations for this session (shared with Telegram)."""
+    """Recent executed operations for this session."""
     cfg = await runtime_config.get_config()
     await _rate_limit(request, cfg["rate_limit_per_min"])
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -649,9 +628,9 @@ def _asset_version(filename: str) -> str:
     """Content hash for a static asset — used to cache-bust its URL.
 
     A Cache-Control header alone isn't enough: it only takes effect on
-    requests a client actually revalidates, and some environments (Telegram's
-    Mini App WebView in particular) are known to cache far more aggressively
-    than that. A URL a client has genuinely never seen before can't be served
+    requests a client actually revalidates, and some in-app WebViews are
+    known to cache far more aggressively than that. A URL a client has
+    genuinely never seen before can't be served
     from any prior cache, browser or otherwise — so index.html's asset links
     get a query string derived from the file's own content, changing
     automatically whenever the file does.
@@ -674,6 +653,29 @@ async def index() -> HTMLResponse:
         '<script src="/static/sphere.js',
         f'<script>window.STREAMING_VOICE_ENABLED = {flag};</script>\n  <script src="/static/sphere.js',
     )
+    return HTMLResponse(html)
+
+
+@app.get("/mib/auth")
+async def mib_auth() -> HTMLResponse:
+    """Entry point MIB's WebView opens: ?access_token=...&return_uri=...&x_app_install_id=...
+
+    Mirrors forte-mib3-webview's mib3loader — the exchange itself
+    (grant_type=exchange, scope=offline_access) happens client-side in
+    static/mib-auth.js, not here, so the Keycloak cookie the Auth service
+    sets lands in the browser's own cookie jar. This route only serves the
+    page and injects the client_id/client_secret/redirect_uri MIB/Auth
+    issued for this webview client.
+    """
+    with open(os.path.join(STATIC_DIR, "mib-auth.html"), "r", encoding="utf-8") as f:
+        html = f.read()
+    config = {
+        "url": MIB_AUTH_URL,
+        "clientId": MIB_AUTH_CLIENT_ID,
+        "clientSecret": MIB_AUTH_CLIENT_SECRET,
+        "redirectUri": MIB_AUTH_REDIRECT_URI,
+    }
+    html = html.replace("__MIB_AUTH_CONFIG__", json.dumps(config))
     return HTMLResponse(html)
 
 

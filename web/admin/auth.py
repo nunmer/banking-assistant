@@ -11,10 +11,10 @@ import secrets
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-# Intentionally weak default (admin/admin) — explicit pilot-stage choice, not
-# an oversight. Publicly reachable with no IP restriction, by instruction.
-ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+# No default: a guessable fallback credential must never ship in source.
+# Fails at import time (process won't start) if either is unset.
+ADMIN_USER = os.environ["ADMIN_USER"]
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 _security = HTTPBasic()
 

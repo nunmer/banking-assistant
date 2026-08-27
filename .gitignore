@@ -10,5 +10,22 @@ htmlcov/
 venv/
 env/
 .env
+speech-service/.env
+docker-compose.smoketest.yml
 *.log
 .DS_Store
+desktop.ini
+dist/
+build/
+data/audio/
+out/
+uploads/
+
+# Audio samples and API response dumps (test artifacts)
+*.wav
+*.mp3
+*.ogg
+response_*.json
+
+# Go
+mib-service/mib-service

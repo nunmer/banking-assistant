@@ -1,8 +1,7 @@
 -- Scenario catalogue: schema + seed data (snapshot of alembic 001–005).
 
 -- Executed-operation history (alembic 005). Written at execution time from
--- both confirm paths; read by the Mini App / web history view. session_id for
--- Telegram-authenticated users is the Telegram user id — one shared history.
+-- both confirm paths; read by the web history view.
 CREATE TABLE IF NOT EXISTS operations (
     id         SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,

@@ -1,0 +1,15 @@
+<svg width="402" height="798" viewBox="0 0 402 798" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- Vector.svg from the concept, with one deliberate change: fill-opacity is
+     lifted from the concept's 0.1 to 0.5. #08342A is so close to the field it
+     sits on that 0.1 moves the pixels by 2-6/255 — invisible on a real screen.
+     0.5 lands at ~22/255, which reads as a watermark without becoming a shape
+     that competes with the orb. This is the one number to touch if the mark
+     wants to be lighter or heavier. -->
+<path fill-rule="evenodd" clip-rule="evenodd" d="M502.746 -4.39062V138.827H401.692C286.127 138.827 187.976 214.971 155.208 319.697C89.6725 357.197 35.747 412.533 0.000379998 479.149V396.451C0.000379998 175.413 180.185 -4.39062 401.692 -4.39062H502.746ZM401.692 457.27V314.128C385.65 314.128 369.917 315.043 354.411 316.872C274.669 326.248 201.953 359.022 143.445 408.185C85.2419 456.965 41.1697 521.979 18.0261 596.143C6.33969 633.72 0 673.581 0 714.969V797.362H143.445V714.969C143.445 572.897 259.393 457.27 401.692 457.27Z" fill="url(#paint0_linear_4982_256161)" fill-opacity="0.5"/>
+<defs>
+<linearGradient id="paint0_linear_4982_256161" x1="251.373" y1="-4.39062" x2="38.9512" y2="784.998" gradientUnits="userSpaceOnUse">
+<stop offset="0.218068" stop-color="#08342A"/>
+<stop offset="1" stop-color="#08342A" stop-opacity="0"/>
+</linearGradient>
+</defs>
+</svg>

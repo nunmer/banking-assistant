@@ -1,18 +1,43 @@
-/* Forte Voice — dark "Solo" theme: near-black with dark magenta. */
+/* Forte Premier — concierge theme: deep forest green with molten gold.
+   Follows the FortePremier_Concept_2026 direction (Commencis, 31/07/2026):
+   a dark emerald ground lit from above, gold reserved for the orb, the
+   wordmark accent and interactive affordances — never for large fills. */
 
 :root {
-  --bg: #0d0410;
-  --bg-glow: #1c0618;
-  --surface: #1a0f1e;
-  --surface-2: #241226;
-  --magenta: #c0166c;
-  --magenta-bright: #ee2d8b;
-  --magenta-soft: #ff6ab2;
-  --violet: #6b2a8f;
-  --text: #f5edf4;
-  --text-dim: #b79fb4;
-  --danger: #ff4d67;
+  --bg: #04201a;
+  --bg-glow: #08342a;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.10);
+  --accent: #c9b07e;
+  --accent-bright: #ddc79b;
+  --accent-soft: #ece0c2;
+  --accent-deep: #08342a;
+  --accent-rgb: 201, 176, 126;
+  --text: #f2f6f2;
+  --text-dim: #9fb4a8;
+  --danger: #ff6b6b;
+  --hairline: rgba(255, 255, 255, 0.12);
   --radius: 18px;
+  --radius-pill: 999px;
+
+  /* The concept's vertical rhythm, measured off its 402x874 phone frame: the
+     wordmark's ink starts 76px down (26px clear of the Dynamic Island, which
+     ends at 49px) and the orb's disc another 88px below the lockup. Both are
+     also expressed against the viewport height so a short window — a 1366x768
+     laptop leaves about 660px — scales the air down instead of pushing the
+     starter prompts out of a stage that does not scroll. */
+  --top-gap: min(76px, 8.7vh);
+  --orb-gap: min(33px, 3.8vh);
+
+  /* The curve iOS uses for sheets and springs. Almost all of the distance is
+     covered in the first third, then it settles — which is what reads as
+     "smooth" rather than "slow". Used by every entrance in this file. */
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The same family, but spending real time in the middle of the move instead
+     of most of it in the first third. Reserved for the greeting: on --ease-ios
+     its blur resolves inside the first 150ms and the effect is over before it
+     has been seen. */
+  --ease-soft: cubic-bezier(0.37, 0, 0.63, 1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,57 +45,188 @@
 html, body {
   height: 100%;
   overscroll-behavior: none;
+  /* The page itself never scrolls — the chat log is the only scroll region
+     (see .chat). Without this the stage's own overflow put a second bar on the
+     window whenever the greeting and the orb together ran a few pixels long. */
+  overflow: hidden;
 }
+
+/* Nothing in this layout is meant to show a scrollbar: the chat scrolls, but
+   it is a bare list on a dark ground and a track down its edge reads as
+   chrome the concept does not have. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar { width: 0; height: 0; }
 
 body {
   display: flex;
   flex-direction: column;
+  /* The concept's five background lights, transcribed from the Figma exports
+     rather than eyeballed. Each one is an ellipse behind a large feGaussianBlur,
+     and each radial-gradient below reproduces that blur's actual alpha profile
+     — sampled off a Chromium render of the same ellipse and filter, not derived
+     analytically, because Chromium approximates a large-sigma Gaussian with
+     stacked box blurs and the closed form comes out visibly too thin in the
+     mid-tones. Every light ends at R + 2*sigma, which is where Figma clips its
+     own filter region.
+
+     Sizes are in vw so each light keeps its shape at any width; positions are
+     percentages of the 402x874 frame. Front to back: the one warm light, top
+     right, then the four greens raking from the upper left down to the pair of
+     washes flanking the orb. */
   background:
-    radial-gradient(120vw 80vh at 50% -10%, var(--bg-glow), transparent 60%),
+    /* RightGold — #C9B07E, 412.5,57.5 r132.5x112.5 blur 150 */
+    radial-gradient(107.6vw 102.6vw at 102.6% 6.6%,
+      rgba(var(--accent-rgb), 0.274), rgba(var(--accent-rgb), 0.269) 8%,
+      rgba(var(--accent-rgb), 0.254) 16%, rgba(var(--accent-rgb), 0.198) 32%,
+      rgba(var(--accent-rgb), 0.157) 42%, rgba(var(--accent-rgb), 0.114) 52%,
+      rgba(var(--accent-rgb), 0.077) 62%, rgba(var(--accent-rgb), 0.050) 72%,
+      rgba(var(--accent-rgb), 0.006) 100%),
+    /* TopGreen — 92.5,64 r133.5x134 blur 60 */
+    radial-gradient(63.1vw 63.2vw at 23.0% 7.3%,
+      rgba(8, 52, 42, 0.923), rgba(8, 52, 42, 0.904) 8%,
+      rgba(8, 52, 42, 0.861) 16%, rgba(8, 52, 42, 0.798) 24%,
+      rgba(8, 52, 42, 0.577) 42%, rgba(8, 52, 42, 0.413) 52%,
+      rgba(8, 52, 42, 0.269) 62%, rgba(8, 52, 42, 0.154) 72%,
+      rgba(8, 52, 42, 0.077) 84%, rgba(8, 52, 42, 0.010) 100%),
+    /* TopGreen00 — 102,109.5 r220x178.5 blur 143.65 */
+    radial-gradient(126.2vw 115.9vw at 25.4% 12.5%,
+      rgba(8, 52, 42, 0.596), rgba(8, 52, 42, 0.577) 8%,
+      rgba(8, 52, 42, 0.553) 16%, rgba(8, 52, 42, 0.490) 24%,
+      rgba(8, 52, 42, 0.423) 32%, rgba(8, 52, 42, 0.327) 42%,
+      rgba(8, 52, 42, 0.231) 52%, rgba(8, 52, 42, 0.149) 62%,
+      rgba(8, 52, 42, 0.096) 72%, rgba(8, 52, 42, 0.048) 84%,
+      rgba(8, 52, 42, 0.010) 100%),
+    /* LeftGreen — 94,287.5 r135x135.5 blur 100 */
+    radial-gradient(83.3vw 83.5vw at 23.4% 32.9%,
+      rgba(8, 52, 42, 0.577), rgba(8, 52, 42, 0.567) 8%,
+      rgba(8, 52, 42, 0.538) 16%, rgba(8, 52, 42, 0.481) 24%,
+      rgba(8, 52, 42, 0.423) 32%, rgba(8, 52, 42, 0.317) 42%,
+      rgba(8, 52, 42, 0.226) 52%, rgba(8, 52, 42, 0.144) 62%,
+      rgba(8, 52, 42, 0.091) 72%, rgba(8, 52, 42, 0.038) 84%,
+      rgba(8, 52, 42, 0.014) 100%),
+    /* RightGreen — 329,307.5 r135x135.5 blur 100 */
+    radial-gradient(83.3vw 83.5vw at 81.8% 35.2%,
+      rgba(8, 52, 42, 0.577), rgba(8, 52, 42, 0.567) 8%,
+      rgba(8, 52, 42, 0.538) 16%, rgba(8, 52, 42, 0.481) 24%,
+      rgba(8, 52, 42, 0.423) 32%, rgba(8, 52, 42, 0.317) 42%,
+      rgba(8, 52, 42, 0.226) 52%, rgba(8, 52, 42, 0.144) 62%,
+      rgba(8, 52, 42, 0.096) 72%, rgba(8, 52, 42, 0.038) 84%,
+      rgba(8, 52, 42, 0.010) 100%),
     var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Background detail ───────────────────────────────────────────────────
+   Two full-viewport overlays behind all content (see the z-index: 1 on the
+   three layout regions below): the Forte monogram watermark with its gold
+   highlight, then grain. */
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Two layers that have to stay locked to each other, because the second is a
+   highlight *on the edge of* the first:
+   1. the oversized Forte "f", exported straight from the concept — it already
+      carries its own 10% fill and its own top-to-bottom fade, so it needs no
+      opacity here. It is drawn flush to the frame's left edge and overflows the
+      right, which is why the artwork is wider than it looks;
+   2. two gold threads catching the light on the "f"'s upper arm. In the concept
+      this is the monogram's own 1px outline, painted with an angular gradient
+      that lights only a ~38-degree wedge of it, drawn twice — blurred for glow
+      and sharp for the hairline. The wedge crosses the arm's two contours, so
+      one thread reads above the wordmark (y 0-73) and a second below it
+      (y 147-193), which is why the artwork carries an empty band between them.
+      Baked to bg-thread.png because the angular gradient is a conic-gradient
+      inside a <foreignObject>, which Chromium refuses to render when an SVG is
+      loaded as an image.
+   Both are sized and anchored identically so the thread lands on the curve at
+   every width; the artwork is cropped to the same 402-unit frame to make that
+   automatic. */
+body::before {
+  background-image: url("/static/bg-thread.png"), url("/static/bg-mark.svg");
+  background-repeat: no-repeat;
+  /* Full-bleed, never capped to the content column. The "f" is drawn to run off
+     the frame's right edge — its own artboard cuts it at x=402 while the shape
+     carries on to 502.7 — so the frame has to *be* the viewport. Cap it at 680px
+     and that cut lands mid-screen as a vertical seam across the whole
+     background. 100% rather than 100vw so a classic scrollbar can't push the
+     seam back into view. */
+  background-position: left top;
+  background-size: 100% auto;
+}
+
+/* A flat dark green over this much area bands visibly on OLED phones. The
+   concept solves it with a noise layer at a fraction of a percent; overlay at
+   a few percent is the same trick without shipping its 3MB bitmap. */
+body::after {
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+.topbar,
+.stage,
+.controls {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Top bar ─────────────────────────────────────────────────────────── */
 
+/* The wordmark needs real headroom, not a token 12px: installed to the home
+   screen there is no browser chrome between it and the Dynamic Island, which
+   swallows the top 49px of the screen. The two branches meet on the hardware
+   this was drawn for — an iPhone reports a 59px inset, so +17 lands the ink at
+   the concept's 76px — and the first branch keeps the same gap in a plain
+   browser tab, where the inset is 0. */
 .topbar {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: calc(env(safe-area-inset-top, 0px) + 14px) 20px 10px;
+  gap: 1px;
+  padding-block: max(var(--top-gap), calc(env(safe-area-inset-top, 0px) + 17px)) 2px;
+  padding-inline: 20px;
 }
 
-.avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex: 0 0 auto;
-  box-shadow: 0 0 0 2px var(--magenta-bright), 0 0 14px rgba(238, 45, 139, 0.5);
-}
+/* The concept drops the assistant avatar in favour of the bare wordmark —
+   kept in the DOM (app.js does not touch it) but out of the layout. */
+.avatar { display: none; }
 
-.wordmark {
-  font-weight: 800;
-  font-size: 1.35rem;
-  letter-spacing: -0.02em;
-}
-
-.wordmark-accent {
-  background: linear-gradient(90deg, var(--magenta-bright), var(--violet));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* The official Forte Premier lockup: white "forte" + gold script "Premier".
+   Shipped as SVG so it stays crisp; the script is part of the artwork, so no
+   display face is loaded for it. */
+.logo {
+  width: auto;
+  height: 52px;
+  display: block;
 }
 
 /* ── Stage: sphere + chat ────────────────────────────────────────────── */
 
+/* The stage does not scroll. It used to, which meant two nested scroll
+   containers — the stage and the chat inside it — and the outer one produced a
+   scrollbar on the window for the handful of pixels the intro overran by. */
 .stage {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sphere-wrap {
@@ -81,24 +237,52 @@ body {
   flex: 0 0 auto;
 }
 
+/* The orb box is square and everything inside it is centred on the sphere.
+   The sphere fills 57.7% of it and its ring 70.7%; the rest is the headroom the
+   bloom needs to fall to zero before the canvas edge, which is what keeps the
+   glow from ever showing as a square.
+
+   65vw sizes the sphere itself to the concept's 150px on a 402px frame. The
+   negative bottom margin hands the surrounding dead space back to the layout
+   without clipping anything, since the bloom still paints into it. The top
+   margin is what is left of --orb-gap after that same dead space (21% of the
+   box) is counted, which is why it is so much smaller than the 88px of air the
+   concept shows between the lockup and the disc. */
+.orb {
+  position: relative;
+  /* 34vh is the short-window clause: an iPhone SE leaves about 560px of
+     viewport in Safari, and there the orb is the only thing on screen that can
+     afford to give the starter prompts their room back. It never binds on a
+     phone-shaped viewport — at 402x874 it works out to 297px, well clear of
+     the 262px cap. */
+  width: min(65vw, 262px, 34vh);
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  margin-block: var(--orb-gap) -22px;
+}
+
 #sphere {
-  width: min(62vw, 340px);
-  height: min(62vw, 340px);
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   touch-action: none;
   cursor: pointer;
 }
+
 
 .status {
   min-height: 1.4em;
   margin-top: 2px;
   font-size: 0.92rem;
+  font-weight: 300; /* info detail */
   color: var(--text-dim);
   text-align: center;
   padding: 0 24px;
-  transition: color 0.3s;
+  transition: color 0.3s, opacity 0.3s;
 }
 
-.status.active { color: var(--magenta-soft); }
+.status.active { color: var(--accent-soft); }
 
 /* A static color change is easy to miss while waiting for the STT→chat→TTS
    round trip — pulse the "thinking" status so it visibly reads as "working"
@@ -120,7 +304,9 @@ body {
 .caption {
   position: absolute;
   left: 50%;
-  top: 56%;
+  /* Below the sphere's equator, where the gold is in shadow — the caption is
+     white and has to stay legible over it. */
+  top: 66%;
   transform: translate(-50%, -50%);
   width: min(88vw, 400px);
   text-align: center;
@@ -134,13 +320,16 @@ body {
   position: relative;
   display: inline-block;
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 600; /* subtitle / subheader */
   line-height: 1.35;
   color: #fff;
+  /* The caption lands on top of a bright gold orb, so it needs a dark halo
+     to stay legible — the gold bloom sits outside that, not under the text. */
   text-shadow:
-    0 0 12px rgba(238, 45, 139, 0.8),
-    0 0 28px rgba(238, 45, 139, 0.45),
-    0 1px 2px rgba(0, 0, 0, 0.4);
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(4, 32, 26, 0.95),
+    0 0 18px rgba(4, 32, 26, 0.8),
+    0 0 38px rgba(var(--accent-rgb), 0.35);
   animation: caption-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.15) both;
   will-change: opacity, filter, transform;
 }
@@ -158,7 +347,7 @@ body {
   left: 0;
   top: 0;
   width: 100%;
-  color: var(--magenta-soft);
+  color: var(--accent-soft);
   opacity: 0;
 }
 
@@ -189,7 +378,7 @@ body {
   height: 10px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 10px rgba(238, 45, 139, 0.9);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.9);
   animation: thinking-dot-bounce 1.2s ease-in-out infinite;
 }
 
@@ -279,7 +468,7 @@ body {
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--surface-2);
-  box-shadow: 0 0 0 1px rgba(238, 45, 139, 0.18), 0 12px 34px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.18), 0 12px 34px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -292,11 +481,11 @@ body {
   height: 44px;
   display: grid;
   place-items: center;
-  color: var(--magenta-soft);
+  color: var(--accent-soft);
   animation: doc-pulse 1.4s ease-in-out infinite;
 }
 
-.doc-card.done .doc-icon { animation: none; color: var(--magenta-soft); }
+.doc-card.done .doc-icon { animation: none; color: var(--accent-soft); }
 
 .doc-lines {
   width: 100%;
@@ -318,7 +507,7 @@ body {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--magenta), var(--magenta-bright));
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
   transform: scaleX(0);
   transform-origin: left;
   transition: transform 0.4s cubic-bezier(0.3, 0.7, 0.2, 1);
@@ -333,8 +522,8 @@ body {
   place-items: center;
   font-size: 22px;
   font-weight: 800;
-  color: #fff;
-  background: radial-gradient(circle, var(--magenta-bright), var(--magenta));
+  color: #08342a;
+  background: radial-gradient(circle, var(--accent-soft), var(--accent));
   border-radius: 50%;
   opacity: 0;
   transform: scale(0.5);
@@ -345,8 +534,8 @@ body {
 }
 
 @keyframes doc-pulse {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(238, 45, 139, 0.35)); }
-  50%      { filter: drop-shadow(0 0 12px rgba(238, 45, 139, 0.75)); }
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.35)); }
+  50%      { filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.75)); }
 }
 
 @keyframes doc-check-pop {
@@ -369,20 +558,24 @@ body {
   padding: 6px 14px;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--magenta-soft);
+  color: var(--accent-soft);
   font-size: 0.85rem;
-  font-weight: 700;
+  font-weight: 600; /* subheader-weight action */
   text-decoration: none;
   width: fit-content;
   transition: background 0.15s;
 }
 
-.op-download:active { background: var(--magenta); color: #fff; }
+.op-download:active { background: var(--accent); color: #08342a; }
 
 /* ── Chat log ────────────────────────────────────────────────────────── */
 
+/* The one scroll region on the page. min-height: 0 is load-bearing — without
+   it a flex child refuses to shrink below its content and pushes the overflow
+   back out onto an ancestor. */
 .chat {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -409,7 +602,11 @@ body {
 
 .bubble.user {
   align-self: flex-end;
-  background: linear-gradient(135deg, var(--magenta), #8f1155);
+  /* Dark ink on gold — the only place gold carries a fill, and it needs the
+     contrast to stay readable at body-copy size. */
+  background: linear-gradient(140deg, var(--accent-soft), var(--accent));
+  color: #08342a;
+  font-weight: 400;
   border-bottom-right-radius: 6px;
 }
 
@@ -436,17 +633,18 @@ body {
   max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--surface-2);
-  border-left: 3px solid var(--magenta);
+  border-left: 3px solid var(--accent);
   border-radius: 12px;
 }
 
 .bubble.op.fail { border-left-color: var(--danger); }
 
-.op-summary { font-size: 0.92rem; }
+.op-summary { font-size: 0.92rem; font-weight: 600; } /* subheader */
 
 .op-meta {
   margin-top: 4px;
   font-size: 0.75rem;
+  font-weight: 300; /* info detail */
   color: var(--text-dim);
 }
 
@@ -462,34 +660,51 @@ body {
   font-weight: 600;
   padding: 8px 22px;
   border-radius: 999px;
-  border: 1px solid var(--magenta);
+  border: 1px solid var(--accent);
   background: transparent;
   color: var(--text);
   cursor: pointer;
   transition: background 0.15s;
 }
 
-.confirm-row button.yes { background: var(--magenta); }
-.confirm-row button.yes:active { background: var(--magenta-bright); }
+/* Dark ink on the gold fill — this is the approve control for a real money
+   operation, so it has to stay unambiguous at a glance. */
+.confirm-row button.yes {
+  background: linear-gradient(140deg, var(--accent-soft), var(--accent));
+  color: #08342a;
+}
+.confirm-row button.yes:active { background: var(--accent-bright); }
 .confirm-row button.no:active { background: var(--surface-2); }
 
 /* ── Bottom controls ─────────────────────────────────────────────────── */
 
+
 .controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding: 8px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  /* Above the greeting's scrim (.hello::before, z-index 3): the bar is the one
+     thing that is live during the greeting, and both concept frames draw it at
+     exactly the same brightness with or without the address on screen. */
+  z-index: 4;
 }
 
+/* One glassy pill holds the field and every affordance, per the concept —
+   the mic is no longer a separate floating FAB. */
 .text-form {
-  flex: 1;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
   background: var(--surface);
-  border: 1px solid var(--surface-2);
-  border-radius: 999px;
-  padding: 6px 6px 6px 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  padding: 5px 6px 5px 18px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.text-form:focus-within {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.10);
 }
 
 #text-input {
@@ -501,39 +716,41 @@ body {
   color: var(--text);
   font: inherit;
   font-size: 0.95rem;
+  font-weight: 400; /* body copy */
+  padding: 8px 0;
 }
 
-#text-input::placeholder { color: var(--text-dim); }
+#text-input::placeholder {
+  color: var(--text-dim);
+  font-weight: 300; /* info detail */
+}
 
+/* Shared geometry for the three in-pill buttons. */
+.mic,
+.reset-btn,
 .send-btn {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   width: 38px;
   height: 38px;
   border: none;
   border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--magenta-soft);
-  font-size: 1rem;
+  background: none;
   cursor: pointer;
+  transition: transform 0.12s, background 0.25s, color 0.25s;
 }
 
-.mic {
-  flex: 0 0 auto;
-  width: 64px;
-  height: 64px;
-  display: grid;
-  place-items: center;
-  border: none;
-  border-radius: 50%;
-  color: #fff;
-  background: linear-gradient(135deg, var(--magenta-bright), var(--violet));
-  box-shadow: 0 0 24px rgba(238, 45, 139, 0.45);
-  cursor: pointer;
-  transition: transform 0.12s, box-shadow 0.3s;
-}
+.mic { color: var(--accent-bright); }
+.reset-btn { color: var(--text-dim); }
 
-.mic:active { transform: scale(0.94); }
+.mic:active,
+.reset-btn:active,
+.send-btn:active { transform: scale(0.92); }
 
-/* Default state shows the mic glyph; while actively listening, a filled
+.reset-btn:hover { color: var(--text); }
+
+/* Default state shows the waveform glyph; while actively listening, a filled
    square (the universal "stop" shape) replaces it — tapping now reads as
    "stop listening", not "start", which the color change alone didn't convey. */
 .mic .icon-stop { display: none; }
@@ -541,16 +758,28 @@ body {
 .mic.recording .icon-stop { display: block; }
 
 .mic.recording {
-  background: linear-gradient(135deg, var(--danger), var(--magenta-bright));
-  box-shadow: 0 0 34px rgba(255, 77, 103, 0.6);
+  color: #04170f;
+  background: linear-gradient(140deg, var(--accent-soft), var(--accent));
+  box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.55);
   animation: pulse 1.4s ease-in-out infinite;
 }
 
-.mic:disabled { opacity: 0.45; cursor: default; }
+.mic:disabled { opacity: 0.4; cursor: default; }
 
 @keyframes pulse {
-  50% { box-shadow: 0 0 46px rgba(255, 77, 103, 0.9); }
+  50% { box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.85); }
 }
+
+/* Send replaces the waveform/reset pair once there is something to send. */
+.send-btn {
+  display: none;
+  color: #04170f;
+  background: linear-gradient(140deg, var(--accent-soft), var(--accent));
+}
+
+.text-form.has-text .mic,
+.text-form.has-text .reset-btn { display: none; }
+.text-form.has-text .send-btn { display: grid; }
 
 /* ── Larger screens: widen the column ────────────────────────────────── */
 
@@ -560,5 +789,282 @@ body {
     max-width: 680px;
     margin-inline: auto;
   }
-  #sphere { width: 360px; height: 360px; }
+  /* Widest a desktop orb goes, but never more than 42% of the window height:
+     the column below it — greeting, status, three prompts, input — needs about
+     250px, and at 380px the orb alone would push them off a laptop screen. */
+  .orb { width: min(380px, 42vh); }
+}
+
+/* ── Greeting + starter prompts ──────────────────────────────────────────
+   The concept leads with a personal address and three tappable examples,
+   which together replace the old bare "tap the mic" instruction as the
+   empty state. Both collapse once the conversation is under way. */
+
+.greeting {
+  text-align: center;
+  padding: 2px 28px 0;
+  transition: opacity 0.35s, transform 0.35s;
+}
+
+.greet-name {
+  font-size: 0.86rem;
+  font-weight: 300; /* info detail */
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.greet-ask {
+  font-size: 1.45rem;
+  font-weight: 700; /* headline / title */
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+/* Outlined pills that hug their own text and centre on the column, per
+   index.png — not the full-width rows this used to draw. Measured off that
+   mock (its phone screen is 201px wide for a 402px frame, so one mock pixel is
+   two frame pixels): 34px tall, 16px apart, 16px of side padding, fully
+   rounded, a hairline border and a fill only a few percent above the ground —
+   which is what --hairline (12%) and --surface (5%) already are.
+
+   The gap shrinks on a short window for the same reason the orb does: three
+   pills at a fixed 50px pitch is 150px of a stage that does not scroll. */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: min(16px, 1.9vh);
+  padding: 10px clamp(14px, 5vw, 24px) 0;
+  transition: opacity 0.35s, transform 0.35s;
+}
+
+.suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* min-height rather than height, and no nowrap: a long localised string on a
+     320px phone should wrap inside the pill rather than run out of it. The type
+     and the side padding give a little first, though — the concept's prompts are
+     short English, and the Russian ones are half again as long, which on a
+     375px phone is the difference between three pills and four lines. */
+  min-height: 34px;
+  max-width: 100%;
+  padding: 6px clamp(12px, 4.2vw, 16px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: clamp(0.82rem, 3.7vw, 0.92rem);
+  font-weight: 400; /* body copy */
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.12s;
+}
+
+.suggestion:hover {
+  background: var(--surface-2);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.suggestion:active { transform: scale(0.985); }
+
+.suggestion svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+/* Retired together the moment a turn starts — the stage belongs to the
+   conversation from then on. */
+.greeting.gone,
+.suggestions.gone {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .greeting, .suggestions { transition: none; }
+}
+
+/* While the intro is up, the greeting already says what to do — the status
+   line would only repeat it. It reappears the moment a turn starts, by which
+   point the greeting and the prompts have collapsed and left it the room.
+   Collapsed rather than merely transparent: an invisible line still cost 23px
+   of a stage that does not scroll, which on a short phone was the difference
+   between three starter prompts and two and a half. */
+body:not(.intro-gone) .status {
+  opacity: 0;
+  pointer-events: none;
+  min-height: 0;
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
+}
+
+/* ── Load-time greeting ──────────────────────────────────────────────────
+   The concept opens on an address, not on the orb: a time-of-day line held for
+   a beat, then the stage assembles itself behind it. The copy sits where the
+   concept's 402x874 frame puts it — address baseline at y 296, 34% of the way
+   down — and every move in this section is opacity and transform only, so the
+   whole sequence stays on the compositor. */
+
+.hello {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  /* The input bar stays live underneath, as it is in the concept — this layer
+     spans the whole viewport, so it must not take any pointer input at all. */
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* The ground goes dark under the address and comes back up as it leaves, so the
+   two lines arrive on a stage with the lights down. Not from the concept — both
+   its frames carry the identical background, sampled — so this is one number to
+   taste. Near-black, tinted with the same green rather than neutral, or the
+   whole field turns grey where it thins out.
+
+   A child, not a background on .hello itself: the copy above it lifts as it
+   goes, and a translated layer would drag its own scrim off the bottom edge and
+   flash an undimmed strip there. */
+.hello::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 14, 11, 0.55);
+}
+
+/* html.hello-boot is set by the inline script in the head, before the first
+   paint; body.hello-on is set by app.js once it owns the sequence. Both are
+   needed: without the first the assembled stage flashes for a frame or two
+   before the greeting arrives, and without the second a dead script would
+   leave the app behind a permanent overlay. */
+html.hello-boot .hello,
+body.hello-on .hello,
+body.hello-out .hello { display: block; }
+
+.hello-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* The box top, not the address baseline: 30.8% is what puts that baseline on
+     the concept's y 296 once the line boxes are accounted for. */
+  top: 30.8%;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.hello-greet {
+  font-size: clamp(1.3rem, 6.44vw, 1.8rem);
+  font-weight: 700; /* headline / title */
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: #fff;
+  animation: hello-in 1.15s var(--ease-soft) 0.14s backwards;
+}
+
+.hello-sub {
+  /* 13px, not a round 8: the concept sets the two baselines 37px apart. */
+  margin-top: 13px;
+  font-size: clamp(0.86rem, 3.93vw, 1.1rem);
+  font-weight: 300; /* info detail */
+  line-height: 1.35;
+  color: var(--text-dim);
+  animation: hello-in 1.15s var(--ease-soft) 0.36s backwards;
+}
+
+/* The address resolves out of focus rather than sliding in sharp — the one place
+   in the load that gets a blur, because it is two short text nodes and nothing
+   else. will-change puts each on its own layer first, which is what lets
+   Chromium run the blur on the compositor instead of re-rasterising the text on
+   every frame; the same effect on a full-viewport layer is what made the first
+   cut of this sequence stutter. */
+.hello-greet,
+.hello-sub {
+  will-change: opacity, transform, filter;
+}
+
+@keyframes hello-in {
+  from { opacity: 0; transform: translate3d(0, 20px, 0); filter: blur(10px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* ── The one entrance ────────────────────────────────────────────────────
+   Every piece of the stage arrives on this, differing only in its delay, which
+   is what makes the load read as one gesture instead of several effects.
+
+   Two deliberate constraints. Only opacity and transform, so a frame costs the
+   compositor a matrix and nothing else — the first cut of this animated
+   letter-spacing, which puts a layout on every frame and visibly halved the
+   framerate. And `backwards` rather than `both` fill, so the values are held
+   during the delay but released on completion — `both` would pin transform
+   forever and kill :active on the pills. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translate3d(0, 20px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Leaving: the copy lifts away and the whole layer — scrim included — fades,
+   returning the ground to full brightness, while the stage rises into its place
+   underneath. The two overlap, which is the whole trick. Split in two because
+   the scrim must not move with the copy (see .hello::before). */
+body.hello-out .hello {
+  animation: hello-fade 0.7s ease-out forwards;
+  will-change: opacity;
+}
+
+body.hello-out .hello-copy {
+  animation: hello-lift 0.7s var(--ease-ios) forwards;
+}
+
+@keyframes hello-fade { to { opacity: 0; } }
+@keyframes hello-lift { to { transform: translate3d(0, -16px, 0); } }
+
+/* Behind the greeting the stage is held at zero until app.js hands it its cue.
+   The input bar is deliberately absent from this list: the concept has it on
+   screen from the first frame.
+
+   The individual pills, not their container: .suggestions carries an opacity
+   transition of its own (for the retirement at the first turn), and letting it
+   fire here faded the whole block up as one piece underneath the stagger,
+   which is exactly the effect the stagger is there to replace. */
+html.hello-boot .topbar,
+html.hello-boot .sphere-wrap,
+html.hello-boot .suggestion,
+body.hello-on .topbar,
+body.hello-on .sphere-wrap,
+body.hello-on .suggestion {
+  opacity: 0;
+}
+
+/* …and then arrives a piece at a time from below, in reading order: wordmark,
+   orb, address, then each shortcut. The pills carry their own index (--i, set
+   in renderSuggestions) so the stagger survives a different number of them.
+
+   Every gap here is wide enough to see one element settle before the next
+   starts, which is the difference between a sequence and a flicker. */
+body.stage-in .topbar    { animation: rise-in 0.95s var(--ease-ios) 0.06s backwards; }
+body.stage-in .orb       { animation: rise-in 0.95s var(--ease-ios) 0.20s backwards; }
+body.stage-in .greeting  { animation: rise-in 0.95s var(--ease-ios) 0.34s backwards; }
+body.stage-in .suggestion {
+  animation: rise-in 0.95s var(--ease-ios)
+             calc(0.48s + var(--i, 0) * 0.13s) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hello-greet,
+  .hello-sub,
+  body.hello-out .hello-copy,
+  body.stage-in .topbar,
+  body.stage-in .orb,
+  body.stage-in .greeting,
+  body.stage-in .suggestion { animation: none; }
+  body.hello-out .hello { animation: none; opacity: 0; }
 }

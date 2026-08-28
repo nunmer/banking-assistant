@@ -47,8 +47,22 @@
     localStorage.getItem("forte_session"));
 
   // First name, for a personalised greeting; null for an anonymous session,
-  // never guessed client-side.
-  let userName = null;
+  // never guessed client-side. The backend does not send one yet, so the two
+  // client-side overrides below are the only way to see the personalised form
+  // the concept shows ("Добрый вечер, Кайрат"): ?name=… in the URL, or
+  // localStorage.forte_name for a demo device that should keep it across loads.
+  // Without either, every greeting is impersonal — correct, not a bug.
+  // Both overrides are attacker-controllable in the sense that anyone can put
+  // anything in their own URL, and the value is forwarded to the API with every
+  // turn — so it is clamped here, at the boundary, rather than trusted.
+  const cleanName = (raw) => {
+    const s = String(raw || "").replace(/[\p{C}]/gu, "").trim().slice(0, 40);
+    return s || null;
+  };
+  let userName = cleanName(
+    new URLSearchParams(location.search).get("name") ||
+      localStorage.getItem("forte_name")
+  );
 
   // Separate from userName (first name); only used server-side for the
   // admin panel's session search.
@@ -66,7 +80,10 @@
       if (!r.ok) return;
       const { operations } = await r.json();
       // Newest-first from the API; render oldest-first so the log reads down.
-      for (const op of (operations || []).reverse()) opCard(op);
+      const ops = (operations || []).reverse();
+      for (const op of ops) opCard(op);
+      // A returning session already has a conversation — skip the empty state.
+      if (ops.length) dismissIntro();
     } catch {} // history is progressive enhancement — never block the app
   }
 
@@ -182,6 +199,23 @@
       error: "Что-то пошло не так. Попробуйте ещё раз.",
       micStart: "Говорить",
       micStop: "Остановить прослушивание",
+      greetAsk: "Чем могу помочь?",
+      greetName: "Здравствуйте, {name}",
+      // Load-time greeting: a time-of-day address over this second line.
+      helloSub: "С возвращением",
+      timeGreet: {
+        morning: "Доброе утро",
+        day: "Добрый день",
+        evening: "Добрый вечер",
+        night: "Доброй ночи",
+      },
+      placeholder: "Спросите о ваших финансах…",
+      reset: "Очистить диалог",
+      suggestions: [
+        "Переведите 4 200 EUR на депозит",
+        "Сколько я потратил в прошлом месяце?",
+        "Когда истекает срок моего депозита?",
+      ],
     },
     "kk-KZ": {
       idle: "Микрофонды басып, сөйлеңіз",
@@ -194,6 +228,22 @@
       error: "Бірдеңе дұрыс болмады. Қайталап көріңіз.",
       micStart: "Сөйлеу",
       micStop: "Тыңдауды тоқтату",
+      greetAsk: "Немен көмектесе аламын?",
+      greetName: "Сәлеметсіз бе, {name}",
+      helloSub: "Қайта қош келдіңіз",
+      timeGreet: {
+        morning: "Қайырлы таң",
+        day: "Қайырлы күн",
+        evening: "Қайырлы кеш",
+        night: "Қайырлы түн",
+      },
+      placeholder: "Қаржыңыз туралы сұраңыз…",
+      reset: "Диалогты тазалау",
+      suggestions: [
+        "4 200 EUR депозитке аударыңыз",
+        "Өткен айда қанша жұмсадым?",
+        "Депозитімнің мерзімі қашан бітеді?",
+      ],
     },
     "en-US": {
       idle: "Tap the mic and speak",
@@ -206,6 +256,22 @@
       error: "Something went wrong. Please try again.",
       micStart: "Speak",
       micStop: "Stop listening",
+      greetAsk: "How can I help you today?",
+      greetName: "Hello, {name}",
+      helloSub: "Welcome back",
+      timeGreet: {
+        morning: "Good morning",
+        day: "Good afternoon",
+        evening: "Good evening",
+        night: "Good night",
+      },
+      placeholder: "Ask anything about your finances…",
+      reset: "Clear conversation",
+      suggestions: [
+        "Move 4 200 EUR to my deposit",
+        "How did I spend last month?",
+        "When does my deposit mature?",
+      ],
     },
   };
 
@@ -865,7 +931,12 @@
 
   async function applyReply(data, { voice, myTurn = turn }) {
     try {
-      if (data.lang && STRINGS[data.lang]) uiLang = data.lang;
+      if (data.lang && STRINGS[data.lang]) {
+        uiLang = data.lang;
+        // Placeholder and labels outlive the intro — keep them in the
+        // language the assistant just answered in.
+        window.__forteApplyLangChrome?.();
+      }
 
       const confirming = data.action === "confirm";
       // Any new reply resolves whatever confirmation was previously pending —
@@ -980,6 +1051,173 @@
     sendText(text);
   });
 
+  // ── Intro: greeting + starter prompts ──────────────────────────────────
+  // The empty state carries the address and three example asks. Both retire
+  // on the first turn — from then on the stage belongs to the conversation.
+
+  const greetingEl = document.getElementById("greeting");
+  const greetNameEl = document.getElementById("greet-name");
+  const greetAskEl = document.getElementById("greet-ask");
+  const suggestionsEl = document.getElementById("suggestions");
+  const resetBtn = document.getElementById("reset");
+
+  const SUGGESTION_ICONS = [
+    '<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>',
+    '<path d="M3 20V10M9 20V4M15 20v-7M21 20V8"/>',
+    '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  ];
+
+  let introDismissed = false;
+
+  function renderSuggestions() {
+    const items = t("suggestions") || [];
+    suggestionsEl.replaceChildren();
+    items.forEach((text, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "suggestion";
+      btn.innerHTML =
+        `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" ` +
+        `stroke="currentColor" stroke-width="1.7" stroke-linecap="round" ` +
+        `stroke-linejoin="round">${SUGGESTION_ICONS[i % SUGGESTION_ICONS.length]}</svg>` +
+        `<span></span>`;
+      btn.querySelector("span").textContent = text;
+      // Its place in the queue, for the staggered entrance (see body.stage-in
+      // in app.css). Set here rather than hard-coded in CSS so the rhythm holds
+      // whatever number of prompts a language ends up with.
+      btn.style.setProperty("--i", String(i));
+      btn.addEventListener("click", () => {
+        dismissIntro();
+        sendText(text);
+      });
+      suggestionsEl.appendChild(btn);
+    });
+  }
+
+  // Keeps the chrome that outlives the intro (placeholder, labels) in step
+  // with the language of the last reply.
+  function applyLangChrome() {
+    input.placeholder = t("placeholder");
+    resetBtn.setAttribute("aria-label", t("reset"));
+    greetAskEl.textContent = t("greetAsk");
+    if (userName) {
+      greetNameEl.textContent = t("greetName").replace("{name}", userName);
+      greetNameEl.hidden = false;
+    } else {
+      greetNameEl.hidden = true;
+    }
+    if (!introDismissed) renderSuggestions();
+    if (!helloDone) renderHello();
+  }
+  window.__forteApplyLangChrome = applyLangChrome;
+
+  function dismissIntro() {
+    endHello();
+    if (introDismissed) return;
+    introDismissed = true;
+    greetingEl.classList.add("gone");
+    suggestionsEl.classList.add("gone");
+    document.body.classList.add("intro-gone");
+  }
+
+  function restoreIntro() {
+    introDismissed = false;
+    greetingEl.classList.remove("gone");
+    suggestionsEl.classList.remove("gone");
+    document.body.classList.remove("intro-gone");
+    renderSuggestions();
+  }
+
+  // Any turn — typed, tapped or spoken — clears the intro.
+  micBtn.addEventListener("click", dismissIntro);
+  document.getElementById("sphere").addEventListener("click", dismissIntro);
+  form.addEventListener("submit", dismissIntro);
+
+  // ── Load-time greeting ─────────────────────────────────────────────────
+  // The concept opens on an address rather than on the orb: the time of day and
+  // the name if the session carries one. It plays once per load and gets out of
+  // the way on its own; anything the user does first cuts it short, and a
+  // session that already has a conversation never sees it at all
+  // (loadHistory → dismissIntro → endHello).
+
+  const helloEl = document.getElementById("hello");
+  const helloGreetEl = document.getElementById("hello-greet");
+  const helloSubEl = document.getElementById("hello-sub");
+
+  // Enter runs 1.51s (the sub line's 0.36s delay plus its 1.15s rise), so this
+  // leaves about three quarters of a second of stillness to read it in before
+  // the stage takes over — the moves are slow, the wait is not.
+  const HELLO_HOLD_MS = 2300;
+  const HELLO_LEAVE_MS = 900; // must outlast hello-fade / hello-lift (0.7s)
+
+  let helloTimer = null;
+  let helloDone = false;
+
+  // Boundaries chosen so "good night" covers the hours when a bank greeting
+  // that says "good evening" would read as wrong, not just late.
+  function timeSlot(hour) {
+    if (hour >= 5 && hour < 12) return "morning";
+    if (hour < 18) return "day";
+    if (hour < 23) return "evening";
+    return "night";
+  }
+
+  function renderHello() {
+    const line = t("timeGreet")[timeSlot(new Date().getHours())];
+    helloGreetEl.textContent = userName ? `${line}, ${userName}` : line;
+    helloSubEl.textContent = t("helloSub");
+  }
+
+  function startHello() {
+    renderHello();
+    // The head's inline script has had html.hello-boot on since before the first
+    // paint; this only takes ownership of the state from it.
+    document.body.classList.add("hello-on");
+    helloTimer = setTimeout(endHello, HELLO_HOLD_MS);
+  }
+
+  function endHello() {
+    if (helloDone) return;
+    helloDone = true;
+    clearTimeout(helloTimer);
+    document.documentElement.classList.remove("hello-boot");
+    document.body.classList.remove("hello-on");
+    // Both at once, deliberately: the address lifting away and the stage rising
+    // into its place overlap, which is what makes the load read as one gesture.
+    document.body.classList.add("hello-out", "stage-in");
+    // Taken out of the document rather than left transparent: it is a
+    // full-viewport fixed layer, and one that outlives its own animation is
+    // exactly the kind of thing that swallows a tap six screens later.
+    setTimeout(() => {
+      helloEl.remove();
+      document.body.classList.remove("hello-out");
+    }, HELLO_LEAVE_MS);
+  }
+
+  // Skipping is the point of a splash: the first touch, click or key anywhere
+  // ends it. Capture, because the greeting itself takes no pointer input and
+  // the handler must not depend on what got the event.
+  for (const ev of ["pointerdown", "keydown"]) {
+    window.addEventListener(ev, () => endHello(), { once: true, capture: true });
+  }
+
+  // Swap the waveform/reset pair for the send button while there is a draft.
+  const syncFormState = () =>
+    form.classList.toggle("has-text", input.value.trim().length > 0);
+  input.addEventListener("input", syncFormState);
+  form.addEventListener("submit", () => requestAnimationFrame(syncFormState));
+
+  resetBtn.addEventListener("click", () => {
+    input.value = "";
+    syncFormState();
+    chatEl.replaceChildren();
+    restoreIntro();
+  });
+
+  applyLangChrome();
   setStatus("idle");
+  // Before init(), so the greeting is already on screen while history loads —
+  // if that load turns up a conversation it ends the greeting itself.
+  startHello();
   init();
 })();

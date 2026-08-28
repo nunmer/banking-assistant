@@ -3,29 +3,78 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#12000d" />
-  <title>Forte Voice — голосовой ассистент</title>
+  <meta name="theme-color" content="#04201a" />
+  <title>Forte Premier — голосовой ассистент</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap"
     rel="stylesheet"
   />
   <link rel="stylesheet" href="/static/app.css" />
+
+  <script>
+    // Before the first paint, which is the whole point of being inline and in
+    // the head: the concept opens on the greeting, and a classList call at the
+    // end of the body is already late enough to flash the assembled stage for a
+    // frame or two. Gated on JS being alive, so a scriptless browser still gets
+    // the ordinary app rather than a permanently hidden one — and belt-and-
+    // braces, dropped again on a timer in case app.js never reaches its own
+    // sequence (which clears this class itself, on time).
+    (function () {
+      var el = document.documentElement;
+      el.classList.add("hello-boot");
+      setTimeout(function () { el.classList.remove("hello-boot"); }, 4000);
+    })();
+  </script>
 </head>
 <body>
+  <!-- Load-time greeting. First thing in the document because it is the first
+       thing the concept shows and the first thing that should be read aloud.
+       The copy below is only a shape reference: app.js rewrites both lines for
+       the current language and time of day, and removes the whole element once
+       the stage takes over. -->
+  <section id="hello" class="hello">
+    <div class="hello-copy">
+      <p id="hello-greet" class="hello-greet">Добрый день</p>
+      <p id="hello-sub" class="hello-sub">С возвращением</p>
+    </div>
+  </section>
+
   <header class="topbar">
     <img src="/static/avatar.png" alt="" class="avatar" />
-    <div class="wordmark">forte<span class="wordmark-accent">voice</span></div>
+    <img
+      src="/static/logo-forte-premier.svg"
+      alt="Forte Premier"
+      class="logo"
+      width="730"
+      height="499"
+    />
   </header>
 
   <main class="stage">
     <section class="sphere-wrap">
-      <canvas id="sphere"></canvas>
-      <div id="caption" class="caption" aria-live="polite"></div>
-      <div id="doc-gen" class="doc-gen" aria-hidden="true"></div>
+      <!-- One square box holds the orb and everything registered to its
+           centre, so the caption and the halo stay locked to the sphere no
+           matter how tall the rest of the column gets. -->
+      <div class="orb">
+        <canvas id="sphere"></canvas>
+        <div id="caption" class="caption" aria-live="polite"></div>
+        <div id="doc-gen" class="doc-gen" aria-hidden="true"></div>
+      </div>
+
+      <!-- Greeting. The name line stays hidden unless the session actually
+           carries a first name — never guessed client-side. -->
+      <div id="greeting" class="greeting">
+        <p id="greet-name" class="greet-name" hidden></p>
+        <h1 id="greet-ask" class="greet-ask">Чем могу помочь?</h1>
+      </div>
+
       <div id="status" class="status">Нажмите на микрофон и говорите</div>
     </section>
+
+    <!-- Starter prompts, hidden as soon as the conversation begins. -->
+    <section id="suggestions" class="suggestions" aria-label="Примеры запросов"></section>
 
     <section id="chat" class="chat" aria-live="polite"></section>
   </main>
@@ -35,22 +84,41 @@
       <input
         id="text-input"
         type="text"
-        placeholder="Или напишите сообщение…"
+        placeholder="Спросите о ваших финансах…"
         maxlength="500"
       />
-      <button type="submit" class="send-btn" aria-label="Отправить">➤</button>
+
+      <button id="mic" type="button" class="mic" aria-label="Говорить">
+        <svg class="icon-mic" viewBox="0 0 24 24" width="22" height="22" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="4"  y1="10" x2="4"  y2="14" />
+          <line x1="8"  y1="7"  x2="8"  y2="17" />
+          <line x1="12" y1="4"  x2="12" y2="20" />
+          <line x1="16" y1="7"  x2="16" y2="17" />
+          <line x1="20" y1="10" x2="20" y2="14" />
+        </svg>
+        <svg class="icon-stop" viewBox="0 0 24 24" width="20" height="20">
+          <rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor" />
+        </svg>
+      </button>
+
+      <button id="reset" type="button" class="reset-btn" aria-label="Очистить диалог">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="6" y1="6" x2="18" y2="18" />
+          <line x1="18" y1="6" x2="6" y2="18" />
+        </svg>
+      </button>
+
+      <button type="submit" class="send-btn" aria-label="Отправить">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+             stroke-linejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5" />
+          <polyline points="6 11 12 5 18 11" />
+        </svg>
+      </button>
     </form>
-    <button id="mic" class="mic" aria-label="Говорить">
-      <svg class="icon-mic" viewBox="0 0 24 24" width="30" height="30" fill="none"
-           stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <rect x="9" y="3" width="6" height="11" rx="3" />
-        <path d="M5 11a7 7 0 0 0 14 0" />
-        <line x1="12" y1="18" x2="12" y2="21" />
-      </svg>
-      <svg class="icon-stop" viewBox="0 0 24 24" width="24" height="24">
-        <rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor" />
-      </svg>
-    </button>
   </footer>
 
   <script src="/static/sphere.js"></script>

@@ -31,9 +31,11 @@
  *   - bloom and ring brightness tracking the level.
  *
  * Two invariants, both of which previous versions broke:
- *   - The silhouette never moves. Level feeds brightness and flow, and scale by
- *     at most 3%, so loud speech reads as the orb running hotter rather than as
- *     it tearing itself apart.
+ *   - The silhouette never moves. Volume is spent on brightness, bloom and the
+ *     rate and amplitude of the fold shear, and on scale by at most 4.5% — so
+ *     loud speech reads as the orb running hotter rather than as it tearing
+ *     itself apart. Everything that makes speech legible has to fit in those
+ *     channels; reaching for the radius instead is what broke it before.
  *   - The bloom is forced to zero before the canvas edge, so it never shows as
  *     a square.
  */
@@ -53,11 +55,14 @@
   // The concept draws no glow at all, so idle bloom is zero and an untouched
   // page is the concept frame exactly. Bloom only exists to signal that audio
   // is being heard, so it belongs to the states that have audio.
+  // Speaking is the loudest state on every axis — it is the one moment the orb
+  // is the thing talking, so it turns fastest, folds hardest and passes the
+  // level through undamped.
   const MODES = {
     idle:      { fold: 0.45, spin: 0.00, react: 0.55, bloom: 0.00, breathe: 0.007 },
     listening: { fold: 1.00, spin: 1.00, react: 1.00, bloom: 0.22, breathe: 0.011 },
     thinking:  { fold: 1.55, spin: 0.55, react: 0.30, bloom: 0.12, breathe: 0.009 },
-    speaking:  { fold: 1.25, spin: 0.90, react: 0.92, bloom: 0.24, breathe: 0.010 },
+    speaking:  { fold: 1.45, spin: 1.10, react: 1.00, bloom: 0.30, breathe: 0.010 },
   };
 
   let mode = MODES.idle;
@@ -80,24 +85,28 @@
   /* Advance every animated quantity by dt seconds. Split out so the WebGL and
    * fallback renderers stay in lockstep on timing. */
   function step(dt) {
-    // A fast attack made every consonant snap the orb outward; releasing more
-    // slowly than it attacks keeps the motion continuous either way.
-    const rate = level > shown ? 6.5 : 3.0;
+    // Attacking well ahead of the release is what makes a syllable land as a
+    // pulse: symmetric smoothing either misses the transient entirely or, run
+    // fast enough to catch it, leaves the orb flickering between consonants.
+    // The attack is deliberately sharp — the level now drives brightness and
+    // flow rather than the silhouette, so a hard transient reads as the orb
+    // flaring, which it could not when it was mostly driving scale.
+    const rate = level > shown ? 8.5 : 3.4;
     shown += (level - shown) * (1 - Math.exp(-dt * rate));
-    bloomW += (mode.bloom - bloomW) * (1 - Math.exp(-dt * 2.2));
+    bloomW += (mode.bloom - bloomW) * (1 - Math.exp(-dt * 2.6));
 
     const lit = shown * mode.react; // "how animated right now", 0..1
 
-    foldPhase += dt * 0.22 * mode.fold;
-    wavePhase += dt * (0.16 + lit * 0.20) * mode.fold;
+    foldPhase += dt * 0.30 * mode.fold;
+    wavePhase += dt * (0.22 + lit * 0.30) * mode.fold;
     // Only turns while there is something to say, so an idle orb keeps the pose
     // the concept was drawn in instead of slowly drifting out of it.
-    spinPhase += dt * (0.05 + lit * 0.30) * mode.spin;
-    ringPhase += dt * (0.10 + lit * 0.25);
+    spinPhase += dt * (0.08 + lit * 0.46) * mode.spin;
+    ringPhase += dt * (0.15 + lit * 0.38);
     breatheT += dt;
 
     const breath = Math.sin(breatheT * 0.62) * mode.breathe;
-    return { lit, radius: R_BASE * (1 + breath + lit * 0.03) };
+    return { lit, radius: R_BASE * (1 + breath + lit * 0.045) };
   }
 
   // ── WebGL renderer ──────────────────────────────────────────────────────
@@ -169,7 +178,7 @@
       // at idle and only opens up with audio, where it is doing a job —
       // showing the user they are being heard.
       float halo = exp(-max(r - R, 0.0) * 5.0) * smoothstep(1.0, R, r);
-      float bloom = halo * (uBloom + lvl * 0.14);
+      float bloom = halo * (uBloom + lvl * 0.30);
       rgb += GOLD * bloom;
       a += bloom;
 
@@ -182,8 +191,13 @@
       float band = smoothstep(halfW, 0.0, abs(r - ringR));
       float ang = atan(uv.y, uv.x);
       // acos(0.68) either side of the peak gives a ~94-degree lobe, matching
-      // the angular gradient's transparent-to-transparent span.
-      float lobe = pow(smoothstep(0.68, 1.0, abs(cos(ang - uRingPhase))), 1.5);
+      // the angular gradient's transparent-to-transparent span — which is what
+      // an untouched page has to show. Brightness alone leaves almost nothing
+      // to modulate, since the concept already draws the ring near full, so
+      // volume grows the arcs instead: ~94 degrees at rest out to ~117 at full.
+      // The rest value is untouched, so idle is still the export.
+      float lobe = pow(smoothstep(0.68 - lvl * 0.16, 1.0,
+                                  abs(cos(ang - uRingPhase))), 1.5);
       float arc = band * lobe * 0.9 * (0.80 + lvl * 0.20);
       rgb += GOLD * arc;
       a += arc;
@@ -197,9 +211,12 @@
       // around it, so the folds shear past each other. A rigid rotation of the
       // whole texture reads as an object spinning; this reads as the material
       // moving, which is what the concept implies.
+      // The travelling term's amplitude rides the level, so a loud passage
+      // churns the folds instead of only lighting them — the shear is the one
+      // channel that can carry volume without touching the silhouette.
       float twist = uSpin
                   + rr * 0.34 * sin(uFold)
-                  + sin(uWave + rr * 1.9) * 0.10;
+                  + sin(uWave + rr * 1.9) * (0.10 + lvl * 0.14);
       vec2 q = vec2(cos(th + twist), sin(th + twist)) * rr;
 
       // 0.4925 rather than 0.5 keeps the sample just inside the texture's own
@@ -208,7 +225,12 @@
       float Y = mix(fallbackLum(p, rr), texLum, uHasTex);
 
       // The concept's two stacked blends, in the order the export applies them.
-      vec3 shaded = setLum(GOLD, clamp(Y + lvl * 0.05, 0.0, 1.0));
+      // Weighted by the headroom left, not applied flat: a flat lift drove the
+      // already-bright folds to white and took the silk structure with them,
+      // which is the one thing the texture exists to carry. This opens up the
+      // shadowed folds instead, so a loud passage gains contrast rather than
+      // bleaching.
+      vec3 shaded = setLum(GOLD, clamp(Y + lvl * 0.20 * (1.0 - Y), 0.0, 1.0));
       vec3 body = 1.0 - (1.0 - BASE) * (1.0 - shaded); // screen
 
 
@@ -401,7 +423,7 @@
 
       const bloomR = Math.min(size * 0.49, R * 1.9);
       const bloom = ctx.createRadialGradient(cx, cy, R * 0.95, cx, cy, bloomR);
-      bloom.addColorStop(0, `rgba(201, 176, 126, ${(bloomW + lit * 0.14).toFixed(3)})`);
+      bloom.addColorStop(0, `rgba(201, 176, 126, ${(bloomW + lit * 0.30).toFixed(3)})`);
       bloom.addColorStop(1, "rgba(201, 176, 126, 0)");
       ctx.fillStyle = bloom;
       ctx.fillRect(0, 0, size, size);
@@ -419,7 +441,10 @@
         ctx.save();
         ctx.globalCompositeOperation = "luminosity";
         ctx.translate(cx, cy);
-        ctx.rotate(spinPhase + Math.sin(foldPhase) * 0.18);
+        // Rigid rotation is all this path has — no per-pixel shear — so the
+        // level rides the fold amplitude instead, which is the nearest thing
+        // to the shader's travelling twist.
+        ctx.rotate(spinPhase + Math.sin(foldPhase) * (0.18 + lit * 0.12));
         const d = R / 0.985;
         ctx.drawImage(img, -d, -d, d * 2, d * 2);
         ctx.restore();
@@ -436,7 +461,10 @@
       ctx.lineWidth = Math.max(1, size * 0.004);
       ctx.lineCap = "round";
       const ringR = R * RING_FACTOR;
-      const half = 0.82; // ~94 degrees of sweep, as in the export
+      // ~94 degrees of sweep at rest, as in the export, opening to ~119 at full
+      // level — the same trade the shader makes, since the export already draws
+      // the ring near full brightness and leaves nothing there to modulate.
+      const half = 0.82 + lit * 0.22;
       for (const side of [0, Math.PI]) {
         const mid = -ringPhase + side;
         const grad = ctx.createLinearGradient(

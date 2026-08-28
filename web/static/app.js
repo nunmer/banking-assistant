@@ -87,29 +87,193 @@
     } catch {} // history is progressive enhancement — never block the app
   }
 
-  function opCard(op) {
+  // ── Operation cards ─────────────────────────────────────────────────────
+  // Both states — a pending confirmation and the completed record — follow
+  // svg-templates/confirm.png and done.png: a tracked kicker, the amount as
+  // the hero, and then either one dim line of detail (completed) or the
+  // question with the approve pair under a hairline (pending).
+  //
+  // The mock also shows a from → to account rail, and nothing here can fill
+  // it: /api/history returns intent/summary/status/tx_id/created_at and a live
+  // reply returns summary/status/tx_id — no structured accounts, no currency
+  // code, no fee, no balance-after. So the rail is dropped rather than faked,
+  // and the card is built out of what the one-line summary does carry, parsed
+  // below. Anything that fails to parse falls back to the summary verbatim,
+  // which is exactly what this card showed before.
+
+  // The words the backend renders amounts with (speechtext._CURRENCY_WORDS),
+  // plus the ISO codes and symbols, since a confirmation sentence composed
+  // from a template can carry either form.
+  const CURRENCY = [
+    [/^(тенге|теңге|tenge|kzt|₸)$/iu, "₸"],
+    [/^(доллар\p{L}*|dollars?|usd|\$)$/iu, "$"],
+    [/^(евро|еуро|euros?|eur|€)$/iu, "€"],
+    [/^(рубл\p{L}*|rubles?|rub|₽)$/iu, "₽"],
+  ];
+
+  // Amounts arrive ungrouped ("100000"), which at hero size reads as a digit
+  // soup. Only a plain integer with at most two decimals is regrouped — a
+  // string that already carries separators is left exactly as it came, since
+  // guessing whether a dot means "thousands" or "cents" is how an amount on a
+  // banking card ends up off by a factor of a thousand.
+  function formatAmount(raw) {
+    const cleaned = String(raw).replace(/\s/g, "").replace(/,(\d\d)$/, ".$1");
+    if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return String(raw).trim();
+    // Cents, if there are any, keep both places — "1 250,5" is not a sum of
+    // money anyone writes.
+    const cents = cleaned.includes(".") ? 2 : 0;
+    return Number(cleaned).toLocaleString(uiLang, {
+      minimumFractionDigits: cents,
+      maximumFractionDigits: cents,
+    });
+  }
+
+  // "Перевод 5000 тенге → KZ123" → kicker "Перевод", amount "5 000 ₸",
+  // detail "→ KZ123". A digit group only counts as money when a currency
+  // follows it, which is what keeps a masked card ("•• 4321") or a deposit
+  // term ("12 мес.") out of the hero slot.
+  function parseOp(summary) {
+    const text = String(summary || "").trim();
+    const re = /(?:^|[^\d.,])(\d[\d\s.,]*?)\s*([₸$€₽]|\p{L}{2,10})/gu;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const unit = CURRENCY.find(([pattern]) => pattern.test(m[2]));
+      if (!unit) continue;
+      const start = m.index + m[0].indexOf(m[1]);
+      return {
+        kicker: text.slice(0, start).replace(/[\s:;,—–-]+$/u, "").trim() || null,
+        amount: `${formatAmount(m[1])} ${unit[1]}`,
+        detail: text.slice(m.index + m[0].length),
+      };
+    }
+    return { title: text };
+  }
+
+  function opLine(cls, text) {
     const el = document.createElement("div");
-    el.className = `bubble op ${op.status === "success" ? "ok" : "fail"}`;
-    const icon = op.status === "success" ? "✅" : "⚠️";
-    const when = op.created_at
-      ? new Date(op.created_at).toLocaleString(uiLang, {
-          day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-        })
-      : "";
-    el.innerHTML =
-      `<div class="op-summary"></div><div class="op-meta">${icon} ${when}</div>`;
-    el.querySelector(".op-summary").textContent = op.summary;
-    if (op.document === "statement_pdf" && op.status === "success" && op.tx_id) {
-      // "📄 PDF" rather than a translated verb — a universally understood
-      // badge that needs no per-language copy (icon + file-type abbreviation).
+    el.className = cls;
+    el.textContent = text;
+    return el;
+  }
+
+  function opRule() {
+    const el = document.createElement("hr");
+    el.className = "op-rule";
+    return el;
+  }
+
+  // The summary's tail is where the destination lives ("→ KZ123", ": Текущий
+  // счёт → Депозит", ", 12 мес."). The mock puts exactly one thing in gold —
+  // the last leg of the arrow, i.e. where the money ended up. Returns whether
+  // there was anything to append, since the caller has to know before it
+  // decides on a separator.
+  function appendDetail(el, rest) {
+    const raw = String(rest || "").replace(/^[\s:;,—–]+/u, "");
+    const parts = raw.split("→").map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return false;
+    if (raw.startsWith("→")) el.append("→ ");
+    parts.forEach((part, i) => {
+      if (i) el.append(" → ");
+      if (i < parts.length - 1) return void el.append(part);
+      const em = document.createElement("span");
+      em.className = "op-em";
+      em.textContent = part;
+      el.appendChild(em);
+    });
+    return true;
+  }
+
+  // Destination, outcome and time on one dim line — the row that lets a
+  // finished card stop at three. A success says nothing about having
+  // succeeded: the ring and check carry that, and spending a whole row per
+  // card to repeat it is what made this list unreadable at eight cards deep.
+  function opMeta(detail, ok, iso) {
+    const el = document.createElement("div");
+    el.className = "op-meta";
+    const tail = [ok ? "" : t("opFailed"), opWhen(iso)].filter(Boolean).join(" · ");
+    const hasDetail = appendDetail(el, detail);
+    if (hasDetail && tail) el.append(" · ");
+    if (tail) el.append(tail);
+    return hasDetail || tail ? el : null;
+  }
+
+  function opWhen(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const time = d.toLocaleTimeString(uiLang, { hour: "2-digit", minute: "2-digit" });
+    // The mock's "today, 21:41" — for a card written minutes ago a date is
+    // noise, and the log is read top-down anyway.
+    if (d.toDateString() === new Date().toDateString()) return `${t("today")}, ${time}`;
+    const day = d.toLocaleDateString(uiLang, { day: "2-digit", month: "2-digit" });
+    return `${day}, ${time}`;
+  }
+
+  // Ring-and-check instead of the ✅ this card used to carry: an emoji is a
+  // different typeface at a size the platform picks, and on Windows it lands
+  // in full colour on a palette that has exactly two hues. Sized for the
+  // 26px ring in .op-mark, with the stroke stepped up to hold at that size.
+  const ICON_CHECK =
+    `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+          stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+       <path d="M5 12.6l4.7 4.7L19 7"/>
+     </svg>`;
+  const ICON_ALERT =
+    `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+          stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+       <path d="M12 6.6v7"/><path d="M12 17.6h.01"/>
+     </svg>`;
+  const ICON_DOWNLOAD =
+    `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+       <path d="M12 3.6v10.4"/><path d="M7.6 9.9L12 14.3l4.4-4.4"/><path d="M4.6 19.6h14.8"/>
+     </svg>`;
+
+  // Three rows: category, amount, and one line for where it went and when.
+  function opCard(op) {
+    const ok = op.status === "success";
+    const el = document.createElement("div");
+    el.className = `bubble op ${ok ? "ok" : "fail"}`;
+
+    // Out of flow in the card's top-right corner. First in the DOM because
+    // that is what lets the text rows reserve room for it in CSS (.op-mark ~
+    // *) — and a success states its outcome nowhere else, so the word itself
+    // has to live on the mark for a screen reader and a hover.
+    const mark = document.createElement("div");
+    mark.className = "op-mark";
+    mark.innerHTML = ok ? ICON_CHECK : ICON_ALERT;
+    mark.title = t(ok ? "opDone" : "opFailed");
+    mark.setAttribute("role", "img");
+    mark.setAttribute("aria-label", mark.title);
+    el.appendChild(mark);
+
+    const parsed = parseOp(op.summary);
+    if (parsed.amount) {
+      if (parsed.kicker) el.appendChild(opLine("op-kicker", parsed.kicker));
+      el.appendChild(opLine("op-hero", parsed.amount));
+    } else if (parsed.title) {
+      el.appendChild(opLine("op-title", parsed.title));
+    }
+
+    const meta = opMeta(parsed.amount ? parsed.detail : "", ok, op.created_at);
+    if (meta) el.appendChild(meta);
+
+    // A history row carries `intent` but no `document` — that field only
+    // exists on a live reply — so without this the download link vanished the
+    // moment the page was reloaded. Same operation either way.
+    const isStatement =
+      op.document === "statement_pdf" || op.intent === "statement_pdf";
+    if (isStatement && ok && op.tx_id) {
+      // "PDF" rather than a translated verb: a file-type abbreviation reads
+      // the same in all three languages, so it needs no per-language copy.
       const link = document.createElement("a");
       link.className = "op-download";
-      const pdfUrl = `${location.origin}/api/statement/pdf/${encodeURIComponent(op.tx_id)}`;
-      link.href = pdfUrl;
+      link.href = `${location.origin}/api/statement/pdf/${encodeURIComponent(op.tx_id)}`;
       link.setAttribute("download", "statement.pdf");
-      link.textContent = "📄 PDF ⬇";
+      link.innerHTML = ICON_DOWNLOAD;
+      link.append("PDF");
       el.appendChild(link);
     }
+
     chatEl.appendChild(el);
     chatEl.scrollTop = chatEl.scrollHeight;
     return el;
@@ -211,6 +375,13 @@
       },
       placeholder: "Спросите о ваших финансах…",
       reset: "Очистить диалог",
+      // Operation cards. The status is impersonal on purpose — "Перевод
+      // выполнен" but "Оплата выполнена", and the label the card shows comes
+      // from the backend, so any agreeing form would eventually be wrong.
+      opDone: "Выполнено",
+      opFailed: "Не выполнено",
+      today: "сегодня",
+      confirmKicker: "Подтверждение",
       suggestions: [
         "Переведите 4 200 EUR на депозит",
         "Сколько я потратил в прошлом месяце?",
@@ -239,6 +410,10 @@
       },
       placeholder: "Қаржыңыз туралы сұраңыз…",
       reset: "Диалогты тазалау",
+      opDone: "Орындалды",
+      opFailed: "Орындалмады",
+      today: "бүгін",
+      confirmKicker: "Растау",
       suggestions: [
         "4 200 EUR депозитке аударыңыз",
         "Өткен айда қанша жұмсадым?",
@@ -267,6 +442,10 @@
       },
       placeholder: "Ask anything about your finances…",
       reset: "Clear conversation",
+      opDone: "Completed",
+      opFailed: "Failed",
+      today: "today",
+      confirmKicker: "Confirm",
       suggestions: [
         "Move 4 200 EUR to my deposit",
         "How did I spend last month?",
@@ -316,31 +495,57 @@
     activeConfirmUI = null;
   }
 
-  function confirmButtons(voice, confirmBubble) {
-    // The buttons inherit the modality of the turn that produced them, so a
-    // voice conversation stays voice after a tap on Да/Нет.
-    // Answering removes the confirmation prompt entirely — the result
-    // replaces it rather than piling up underneath.
+  // The pending half of the card pair (svg-templates/confirm.png): the same
+  // skeleton as a finished operation, but with the question in place of the
+  // record and the two controls in place of the detail. One element rather
+  // than a bubble plus a detached button row — what is being approved and the
+  // control that approves it belong to the same object.
+  function confirmCard(message, voice) {
     clearConfirmUI(); // never stack two pending confirmations
-    const row = document.createElement("div");
-    row.className = "confirm-row";
-    for (const [key, cls] of [["yes", "yes"], ["no", "no"]]) {
-      const btn = document.createElement("button");
-      btn.textContent = t(key);
-      btn.className = cls;
-      btn.addEventListener("click", () => {
-        clearConfirmUI();
-        ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
-        // Confirming before the prompt finished speaking cuts it — the result
-        // must never overlap the still-playing question.
-        const myTurn = newTurn();
-        converse(t(key), { voice, myTurn });
-      });
-      row.appendChild(btn);
+    const el = document.createElement("div");
+    el.className = "bubble op confirm";
+
+    // Generic kicker, not the parsed verb: at this point the app has no intent
+    // field (that only comes back with history), and the summary's leading
+    // word here is an imperative — "ПЕРЕВЕСТИ" as a category label reads as a
+    // command shouted at the user.
+    el.appendChild(opLine("op-kicker", t("confirmKicker")));
+    const parsed = parseOp(message);
+    if (parsed.amount) {
+      el.appendChild(opLine("op-hero", parsed.amount));
+      el.appendChild(opLine("op-body", message));
+    } else if (parsed.title) {
+      // Nothing to hero — the question itself carries the card.
+      el.appendChild(opLine("op-title", parsed.title));
     }
-    chatEl.appendChild(row);
+    el.appendChild(opRule());
+
+    // Both controls inherit the modality of the turn that produced them, so a
+    // voice conversation stays voice after a tap on Да/Нет. Answering removes
+    // the confirmation entirely — the result replaces it rather than piling up
+    // underneath.
+    const answer = (key) => () => {
+      clearConfirmUI();
+      ensureAudioCtx(); // user gesture — keep audio unlocked for the reply
+      // Confirming before the prompt finished speaking cuts it — the result
+      // must never overlap the still-playing question.
+      const myTurn = newTurn();
+      converse(t(key), { voice, myTurn });
+    };
+    for (const [key, cls] of [["yes", "op-cta"], ["no", "op-ghost"]]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = cls;
+      btn.textContent = t(key);
+      btn.addEventListener("click", answer(key));
+      el.appendChild(btn);
+    }
+
+    chatEl.appendChild(el);
     chatEl.scrollTop = chatEl.scrollHeight;
-    activeConfirmUI = { row, bubble: confirmBubble };
+    // The card IS the prompt now, so there is no separate bubble to clean up.
+    activeConfirmUI = { row: el, bubble: null };
+    return el;
   }
 
   // ── Audio level → sphere ───────────────────────────────────────────────
@@ -953,11 +1158,13 @@
         } else {
           opCard({ ...data.operation, created_at: new Date().toISOString() });
         }
-      } else if (!voice || confirming) {
-        // Text modality shows every reply; voice modality shows only the
-        // confirmation (so the user sees exactly what they approve).
-        const el = bubble(data.message, "bot");
-        if (confirming) confirmButtons(voice, el);
+      } else if (confirming) {
+        // Shown in both modalities — a spoken confirmation still gets its card,
+        // so the user sees exactly what they are approving.
+        confirmCard(data.message, voice);
+      } else if (!voice) {
+        // Text modality shows every reply.
+        bubble(data.message, "bot");
       }
 
       if (voice && data.audio) {

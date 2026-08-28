@@ -38,6 +38,10 @@
      its blur resolves inside the first 150ms and the effect is over before it
      has been seen. */
   --ease-soft: cubic-bezier(0.37, 0, 0.63, 1);
+
+  /* Fainter than --hairline (12%): a rule *inside* a panel that is itself only
+     5% white has to be quieter than the panel's own edge. */
+  --hairline-soft: rgba(255, 255, 255, 0.07);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -549,30 +553,42 @@ body::after {
   .doc-card.done .doc-check { animation: none; opacity: 1; transform: scale(1); }
 }
 
-/* Download affordance on a completed statement_pdf history card. */
+/* Download affordance on a completed statement_pdf card. Sits in the card's
+   action slot, so it borrows the ghost control's weight rather than competing
+   with the gold fill reserved for approving money movements. */
 .op-download {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
-  padding: 6px 14px;
+  margin-top: 9px;
+  padding: 6px 13px;
+  border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--accent-soft);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600; /* subheader-weight action */
   text-decoration: none;
   width: fit-content;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
+.op-download:hover { background: var(--surface-2); border-color: var(--accent); }
 .op-download:active { background: var(--accent); color: #08342a; }
+.op-download svg { flex: 0 0 auto; }
 
 /* ── Chat log ────────────────────────────────────────────────────────── */
 
 /* The one scroll region on the page. min-height: 0 is load-bearing — without
    it a flex child refuses to shrink below its content and pushes the overflow
-   back out onto an ancestor. */
+   back out onto an ancestor.
+
+   The mask is what stops a scrolled card from ending in a hard horizontal
+   cut just under the status line: overflow clips on a pixel, and a bordered
+   panel sliced through its middle reads as a stray rule drawn across the
+   screen. Fading the top 22px instead lets content dissolve out of the log.
+   It is a top edge only — the bottom sits against the controls, where a
+   fade would dim the last card for no reason. */
 .chat {
   flex: 1;
   min-height: 0;
@@ -582,6 +598,8 @@ body::after {
   gap: 10px;
   padding: 14px 16px 10px;
   scroll-behavior: smooth;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
 }
 
 .bubble {
@@ -627,54 +645,194 @@ body::after {
   border-style: dashed;
 }
 
-/* Persistent record of an executed operation. */
+/* ── Operation card ──────────────────────────────────────────────────────
+   confirm.png and done.png are two states of one component: kicker → amount
+   → one dim detail line, with the outcome mark to the right, and then either
+   the PDF affordance or the approve pair.
+
+   Scaled to the chat log, not to the mocks. Each mock draws a full-screen
+   sheet for a single operation; here eight of these stack in a scrolling
+   column, so the mock's proportions are kept and its measurements are not —
+   ported at 1:1 a card ran ~280px tall and three of them filled the phone.
+   The ground is the app's own panel (--surface over --hairline, the same pair
+   .bubble.bot and .text-form stand on) rather than a surface invented for
+   the card, and gold appears only where it already does elsewhere: the mark,
+   the destination, the approve fill.
+
+   Dropped from the mock deliberately: its from → to account rail. Neither
+   /api/history nor a live reply carries structured accounts — only the
+   one-line summary — so the rail would have to be invented. Whatever
+   destination the summary does name goes on the detail line instead.
+
+   The mark sits in the card's top-right corner, out of flow, and the text
+   rows it could reach reserve room for it — so a long IBAN wraps against the
+   mark rather than running under it, while the pending card, which has no
+   mark, keeps its full width. */
 .bubble.op {
+  position: relative;
   align-self: stretch;
   max-width: 100%;
+  padding: 12px 14px;
   background: var(--surface);
-  border: 1px solid var(--surface-2);
-  border-left: 3px solid var(--accent);
-  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  /* .bubble keeps newlines for chat copy; the card composes its own lines. */
+  white-space: normal;
+  /* Opacity alone, where .bubble's entrance also travels. The statement
+     flourish FLIPs this element by writing an inline transform on the frame
+     it is created (see animateDocumentGeneration), and an animation that
+     touches transform outranks an inline style — it would eat the flight. */
+  animation: op-in 0.28s var(--ease-ios);
 }
 
-.bubble.op.fail { border-left-color: var(--danger); }
+@keyframes op-in { from { opacity: 0; } to { opacity: 1; } }
 
-.op-summary { font-size: 0.92rem; font-weight: 600; } /* subheader */
+/* The mock's outcome ring, and what replaces the ✅ this card used to carry:
+   an emoji is a different typeface at a size the platform chooses, and on
+   Windows it arrives in full colour on a palette that has two hues. Stroke
+   only — the mock's tinted disc, over a panel that is itself 5% white, came
+   out as a khaki smudge rather than a ring. */
+.op-mark {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  border-radius: 50%;
+  color: var(--accent);
+}
 
-.op-meta {
-  margin-top: 4px;
-  font-size: 0.75rem;
-  font-weight: 300; /* info detail */
+/* Keyed off the mark's presence rather than off the card's variant class, so
+   the reserve cannot outlive the thing it is reserving for. The mark is first
+   in the DOM to make this reachable. */
+.op-mark ~ .op-kicker,
+.op-mark ~ .op-hero,
+.op-mark ~ .op-title,
+.op-mark ~ .op-meta { padding-right: 34px; }
+
+.op-mark svg { display: block; }
+
+.bubble.op.fail .op-mark {
+  border-color: rgba(255, 107, 107, 0.4);
+  color: var(--danger);
+}
+
+/* Which operation this is, in the mock's tracked caps — where a bank app
+   would put the transaction category. */
+.op-kicker {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  line-height: 1.3;
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 
-/* Inline confirm buttons under a bot bubble */
-.confirm-row {
-  display: flex;
-  gap: 10px;
-  align-self: flex-start;
-}
-
-.confirm-row button {
-  font: inherit;
+/* The amount, as the one thing the card is read for: one step above body
+   copy, which is as much room as a log entry has to give it. */
+.op-hero {
+  margin-top: 1px;
+  font-size: clamp(1.15rem, 5vw, 1.35rem);
   font-weight: 600;
-  padding: 8px 22px;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: transparent;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
   color: var(--text);
-  cursor: pointer;
-  transition: background 0.15s;
+  /* Equal-width digits, so a column of cards does not jitter. */
+  font-variant-numeric: tabular-nums;
 }
 
-/* Dark ink on the gold fill — this is the approve control for a real money
-   operation, so it has to stay unambiguous at a glance. */
-.confirm-row button.yes {
+/* Fallback hero for the operations that have no amount at all — a card block,
+   a balance check, a statement. Set at body scale rather than at the amount's
+   size, which would promise a number that isn't there. */
+.op-title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+/* Destination, outcome and time on one dim line, which is what lets a
+   completed card stop at three rows. A success does not spell out
+   "выполнено" — the mark carries it, and the word moves to the mark's
+   tooltip; a failure keeps the word, since that is not something to leave
+   to a 26px icon. */
+.op-meta {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+/* The entity the operation acts on — the account, the card, the period.
+   --accent exactly: the mock's emphasis sampled to the same value. */
+.op-em { color: var(--accent); font-weight: 500; }
+
+/* Pending card only: the sentence being approved, and the rule that sets it
+   off from the approve pair. A completed card has neither — its detail folds
+   into .op-meta and it ends there. */
+.op-body {
+  margin-top: 3px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.op-rule {
+  height: 1px;
+  margin: 11px 0 9px;
+  border: 0;
+  background: var(--hairline-soft);
+}
+
+/* The mock gives approval the full content width and a filled gold pill; the
+   way out is a bare centred label beneath it, deliberately without a box —
+   nothing about walking away should compete with the primary action. The
+   fill is the gradient .bubble.user and .send-btn already carry, not a
+   second gold invented for this one control. */
+.op-cta {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  /* Dark ink on the gold fill: this approves a real money operation, so it
+     has to stay unambiguous at a glance. */
   background: linear-gradient(140deg, var(--accent-soft), var(--accent));
   color: #08342a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.12s;
 }
-.confirm-row button.yes:active { background: var(--accent-bright); }
-.confirm-row button.no:active { background: var(--surface-2); }
+
+.op-cta:hover { filter: brightness(1.05); }
+.op-cta:active { transform: scale(0.985); filter: brightness(0.95); }
+
+.op-ghost {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 9px 0 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.op-ghost:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.op { animation: none; }
+  .op-cta, .op-ghost { transition: none; }
+  .op-cta:active { transform: none; }
+}
 
 /* ── Bottom controls ─────────────────────────────────────────────────── */
 
